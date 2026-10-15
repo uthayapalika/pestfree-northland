@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Pest-Free Northland Tracker</title>
+  <meta name="theme-color" content="#0F6E56">
+  <link rel="manifest" href="manifest.json">
+  <link rel="icon" href="icons/icon-192.png">
+</head>
+<body>
+  <p><a href="login.html">Continue to the Pest-Free Northland Tracker</a></p>
+  <script src="config.js"></script>
+  <script src="js/api.js"></script>
+  <script>
+    // Home page: send people to the dashboard if logged in, otherwise to the login page.
+    location.replace(Auth.token ? "dashboard.html" : "login.html");
+  </script>
+</body>
+</html>
