@@ -143,3 +143,4 @@ td { padding: 12px 8px; border-top: 1px solid #e8eae4; vertical-align: top; }
   .fm { padding: 32px 24px; }
 }
 @media (max-width: 560px) { .bar-row { grid-template-columns: 96px 1fr 24px; } .cols, .labels { gap: 14px; } }
+.trapmap { height: 420px; width: 100%; border-radius: 12px; margin: 16px 0; background: #e8ece6; }

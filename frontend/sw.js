@@ -1,10 +1,10 @@
 // Minimal service worker: keeps the app shell available when the network is slow.
 // API calls are never cached, so data is always fresh.
-const CACHE = "pestfree-shell-v3";
+const CACHE = "pestfree-shell-v5";
 const SHELL = [
-  "./", "index.html", "login.html", "register.html", "dashboard.html", "lines.html", "traps.html", "trap.html",
+  "./", "index.html", "login.html", "register.html", "dashboard.html", "lines.html", "traps.html", "trap.html","map.html",
   "reports.html", "users.html", "css/style.css", "config.js", "manifest.json",
-  "js/api.js", "js/common.js", "js/login.js", "js/register.js", "js/dashboard.js", "js/lines.js",
+  "js/api.js", "js/common.js", "js/map.js", "js/allmap.js","js/login.js", "js/register.js", "js/dashboard.js", "js/lines.js",
   "js/traps.js", "js/trap.js", "js/reports.js", "js/users.js",
 ];
 

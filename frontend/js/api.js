@@ -71,3 +71,39 @@ async function api(path, options = {}) {
   if (!res.ok) throw new Error(formatError(data, res.status));
   return data;
 }
+// Adds a "Map" link to the sidebar on every page.
+(function () {
+  function addMapLink() {
+    var nav = document.getElementById("navlinks");
+    if (!nav || nav.querySelector('a[href="map.html"]')) return;
+    var ref = nav.querySelector('a[href="lines.html"]') || nav.querySelector("a");
+    if (!ref) return;
+
+    var link = ref.cloneNode(true);
+    link.setAttribute("href", "map.html");
+    link.classList.remove("active");
+    link.removeAttribute("aria-current");
+
+    // Replace the label text but keep the icon.
+    var walker = document.createTreeWalker(link, NodeFilter.SHOW_TEXT);
+    var node, last = null;
+    while ((node = walker.nextNode())) { if (node.nodeValue.trim()) last = node; }
+    if (last) last.nodeValue = " Map";
+
+    if (/map\.html$/.test(location.pathname)) {
+      link.classList.add("active");
+      link.setAttribute("aria-current", "page");
+    }
+    ref.insertAdjacentElement("afterend", link);
+  }
+
+  function start() {
+    var nav = document.getElementById("navlinks");
+    if (!nav) return;
+    addMapLink();
+    new MutationObserver(addMapLink).observe(nav, { childList: true });
+  }
+
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", start);
+  else start();
+})();

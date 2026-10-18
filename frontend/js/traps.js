@@ -21,10 +21,13 @@ startPage("user", async () => {
             h("td", {}, h("a", { class: "btn small", href: `trap.html?line=${lineId}&trap=${t.id}` }, "Open")))))))
     : h("p", { class: "muted" }, "No traps on this line yet.");
 
+  const mapEl = h("div", { class: "trapmap" });
+
   const parts = [
     h("p", { class: "crumbs" }, h("a", { href: "lines.html" }, "Trap lines"), " / ", line ? line.name : `Line ${lineId}`),
     h("h1", {}, line ? line.name : "Trap line"),
     line ? h("p", { class: "muted" }, line.general_area) : null,
+    traps.length ? mapEl : null,
     table,
   ];
 
@@ -62,5 +65,14 @@ startPage("user", async () => {
       h("label", { class: "check" }, sensitive, " Sensitive location (hide exact coordinates from unapproved volunteers)"),
       h("button", { class: "btn", type: "submit" }, "Add trap")));
   }
-  return h("div", {}, parts);
+
+  const page = h("div", {}, parts);
+  if (traps.length) {
+    if (window.PestMap) {
+      PestMap.render(mapEl, traps, lineId);
+    } else {
+      mapEl.textContent = "Map file not loaded: check js/map.js exists and traps.html loads it.";
+    }
+  }
+  return page;
 });
