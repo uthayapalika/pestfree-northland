@@ -1,0 +1,34 @@
+/* features.css - styles for the new features. Load it after admin.css. */
+
+/* Big tap targets on the Field check page */
+.tile { display: block; width: 100%; min-height: 84px; padding: 1rem; font-size: 1.15rem; text-align: center; cursor: pointer;
+  border-radius: 14px; border: 2px solid #24382f; background: #10201b; color: #e8f0ec; }
+.tile:hover { border-color: #3fb27f; }
+.tile:disabled { opacity: .5; }
+.tile.active { border-color: #3fb27f; background: #183a2c; box-shadow: 0 0 0 3px rgba(63, 178, 127, .25); }
+.tile i { font-size: 1.7rem; }
+.tile.list { min-height: 0; margin-bottom: .6rem; font-size: 1rem; text-align: left; }
+
+/* Charts */
+.chart-box { position: relative; height: 260px; }
+
+/* Map colour key */
+.map-legend { background: rgba(16, 32, 27, .92); color: #e8f0ec; padding: 8px 12px; border-radius: 8px; font-size: .8rem; line-height: 1.7; }
+.legend-dot { display: inline-block; width: 12px; height: 12px; border-radius: 50%; margin-right: 6px; vertical-align: -1px; box-sizing: border-box; }
+
+/* Offline bar */
+.offbar { position: fixed; left: 0; right: 0; bottom: 0; z-index: 2000; padding: .5rem 1rem; text-align: center;
+  background: #e0a526; color: #08110f; font-weight: 600; font-size: .9rem; }
+
+/* QR labels (always black on white so phones can scan them) */
+.qr-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 12px; }
+.qr-label { background: #fff; color: #000; border-radius: 10px; padding: 10px; text-align: center; break-inside: avoid; }
+.qr-img { display: flex; justify-content: center; margin-bottom: 6px; }
+
+@media print {
+  nav.navbar, .no-print, #err, .offbar { display: none !important; }
+  body { background: #fff !important; color: #000 !important; }
+  main { padding: 0 !important; }
+  h1 { color: #000 !important; }
+  .qr-label { border: 1px solid #999; }
+}

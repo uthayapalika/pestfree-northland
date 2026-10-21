@@ -5,7 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from app.api import auth, checks, reports, trap_lines, traps, users
+from app.api import admin_edit, auth, checks, reports, trap_lines, traps, users
 from app.config import BASE_DIR
 from app.db import models  # noqa: F401  (registers the tables)
 from app.db.database import Base, engine
@@ -18,7 +18,7 @@ async def lifespan(app: FastAPI):
     yield
 
 
-app = FastAPI(title="Pest-Free Northland Tracker API", version="1.0", lifespan=lifespan)
+app = FastAPI(title="Pest-Free Tracker API", version="1.0", lifespan=lifespan)
 
 # Lets a frontend on another address (your friend's) call this API.
 app.add_middleware(
@@ -39,8 +39,9 @@ def health():
     return {"status": "ok"}
 
 
-for module in (auth, users, trap_lines, traps, checks, reports):
+for module in (auth, users, trap_lines, traps, checks, reports, admin_edit):
     app.include_router(module.router)
+app.include_router(checks.catches_router)
 
 # Optional: serve the HTML frontend from the same server (put it in the frontend/ folder).
 frontend_dir = BASE_DIR / "frontend"

@@ -96,6 +96,13 @@ class CatchIn(BaseModel):
     species: Species
 
 
+class CatchCreateIn(BaseModel):
+    trap_id: int
+    species: Species
+    notes: str = Field(default="", max_length=500)
+    checked_at: Optional[datetime] = None
+
+
 class CatchOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: int
