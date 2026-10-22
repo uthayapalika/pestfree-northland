@@ -5,7 +5,8 @@ from app.api.deps import require_coordinator
 from app.db.database import get_db
 from app.db.repositories import UserRepository
 from app.errors import ServiceError
-from app.schemas import LocationAccessIn, UserOut
+from app.schemas import LocationAccessIn, RegisterIn, UserOut
+from app.services.auth_service import AuthService
 
 router = APIRouter(prefix="/users", tags=["Users"])
 
@@ -13,6 +14,15 @@ router = APIRouter(prefix="/users", tags=["Users"])
 @router.get("", response_model=list[UserOut])
 def list_users(db: Session = Depends(get_db), _=Depends(require_coordinator)):
     return UserRepository(db).list_all()
+
+
+@router.post("", response_model=UserOut, status_code=201)
+def create_user(
+    data: RegisterIn,
+    db: Session = Depends(get_db),
+    _=Depends(require_coordinator),
+):
+    return AuthService(db).register(data)
 
 
 @router.patch("/{user_id}/location-access", response_model=UserOut)

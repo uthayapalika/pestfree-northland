@@ -36,3 +36,16 @@ def list_traps(
     line_id: int, db: Session = Depends(get_db), user=Depends(get_current_user)
 ):
     return TrapService(db).list_traps(user, line_id)
+
+@router.delete("/{line_id}", status_code=204)
+def delete_trap_line(line_id: int, db: Session = Depends(get_db), user=Depends(require_coordinator)):
+    return TrapService(db).delete_line(user, line_id)
+
+@router.put("/{line_id}", response_model=TrapLineOut)
+def update_trap_line(
+    line_id: int,
+    data: TrapLineIn,
+    db: Session = Depends(get_db),
+    user=Depends(require_coordinator),
+):
+    return TrapService(db).update_line(user, line_id, data)

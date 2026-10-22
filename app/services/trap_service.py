@@ -1,5 +1,6 @@
 from datetime import timezone
 
+from app.db import models
 from sqlalchemy.orm import Session
 
 from app.db.models import UserModel
@@ -15,6 +16,7 @@ def can_view_exact(user: UserModel) -> bool:
 
 class TrapService:
     def __init__(self, db: Session):
+        self.db = db
         self.lines = TrapLineRepository(db)
         self.traps = TrapRepository(db)
         self.checks = CheckRepository(db)
@@ -84,3 +86,35 @@ class TrapService:
         return self.checks.add_catch(
             check.id, check.trap_id, data.species, check.checked_at
         )
+
+    def delete_line(self, user, line_id: int):
+        if user.role != "coordinator":
+            raise ServiceError("Only coordinators can delete trap lines.", 403)
+
+        line = next((l for l in self.lines.list_all() if l.id == line_id), None)
+        if not line:
+            raise ServiceError("Trap line not found.", 404)
+
+        # Refuse if anything (e.g. traps) is still attached to this line.
+        from sqlalchemy import inspect
+        for rel in inspect(line).mapper.relationships:
+            if rel.uselist and getattr(line, rel.key):
+                raise ServiceError("This trap line still has traps. Delete or move them first.", 409)
+
+        self.db.delete(line)
+        self.db.commit()
+
+    def update_line(self, user, line_id: int, data):
+        if user.role != "coordinator":
+            raise ServiceError("Only coordinators can edit trap lines.", 403)
+
+        line = next((l for l in self.lines.list_all() if l.id == line_id), None)
+        if not line:
+            raise ServiceError("Trap line not found.", 404)
+
+        line.name = data.name
+        line.general_area = data.general_area
+        self.db.commit()
+        self.db.refresh(line)
+        return line
+
