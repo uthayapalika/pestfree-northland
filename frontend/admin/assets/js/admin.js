@@ -37,7 +37,7 @@ function shell(title, inner) {
   ).join("");
   content.innerHTML = `
     <nav class="navbar border-bottom px-3"><div class="container-fluid">
-      <span class="navbar-brand">Pest-Free Northland</span>
+      <span class="navbar-brand">Pest-Free</span>
       <div class="navbar-nav flex-row flex-wrap gap-3 me-auto">${links}</div>
       <span id="pending" class="badge text-bg-warning me-2 d-none"></span>
       <span class="small text-secondary me-3">${esc(me.name || me.email)}${me.role ? " (" + esc(me.role) + ")" : ""}</span>
