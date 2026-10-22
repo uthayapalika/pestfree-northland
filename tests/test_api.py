@@ -129,6 +129,128 @@ def test_catch_requires_caught_status(client, coord, vol):
     assert r.status_code == 400
 
 
+def test_catch_crud(client, coord, vol):
+    _, trap = _setup_sensitive_trap(client, coord)
+    created = client.post(
+        "/catches",
+        json={
+            "trap_id": trap["id"],
+            "species": "stoat",
+            "notes": "Caught near the ridge",
+        },
+        headers=vol,
+    )
+    assert created.status_code == 201
+    catch = created.json()
+    assert catch["trap_id"] == trap["id"] and catch["species"] == "stoat"
+
+    listing = client.get("/catches", headers=coord)
+    assert listing.status_code == 200 and listing.json()[0]["id"] == catch["id"]
+    assert client.put(
+        f"/catches/{catch['id']}", json={"species": "rat"}, headers=vol
+    ).status_code == 403
+    updated = client.put(
+        f"/catches/{catch['id']}", json={"species": "rat"}, headers=coord
+    )
+    assert updated.status_code == 200 and updated.json()["species"] == "rat"
+    assert client.delete(f"/catches/{catch['id']}", headers=coord).status_code == 204
+    assert client.get("/catches", headers=coord).json() == []
+
+
+def test_trap_update_enforces_sensitive_coordinates_and_unique_code(client, coord):
+    line, first = _setup_sensitive_trap(client, coord)
+    second = client.post(
+        f"/trap-lines/{line['id']}/traps",
+        headers=coord,
+        json={"code": "T2", "trap_type": "rat", "general_area": "Hills"},
+    ).json()
+
+    missing_coordinates = client.put(
+        f"/traps/{second['id']}",
+        headers=coord,
+        json={
+            "code": "T2",
+            "trap_type": "rat",
+            "general_area": "Hills",
+            "is_sensitive": True,
+        },
+    )
+    assert missing_coordinates.status_code == 400
+    duplicate_code = client.put(
+        f"/traps/{second['id']}",
+        headers=coord,
+        json={
+            "code": first["code"],
+            "trap_type": "rat",
+            "general_area": "Hills",
+        },
+    )
+    assert duplicate_code.status_code == 409
+
+
+def test_trap_and_line_crud(client, coord):
+    line = client.post(
+        "/trap-lines",
+        headers=coord,
+        json={"name": "Line A", "general_area": "Northland"},
+    ).json()
+    updated_line = client.put(
+        f"/trap-lines/{line['id']}",
+        headers=coord,
+        json={"name": "Line Updated", "general_area": "Upper Northland"},
+    )
+    assert updated_line.status_code == 200
+    assert updated_line.json()["name"] == "Line Updated"
+
+    trap = client.post(
+        f"/trap-lines/{line['id']}/traps",
+        headers=coord,
+        json={"code": "T1", "trap_type": "rat", "general_area": "Hills"},
+    ).json()
+    updated_trap = client.put(
+        f"/traps/{trap['id']}",
+        headers=coord,
+        json={
+            "code": "T2",
+            "trap_type": "stoat",
+            "general_area": "Ridge",
+            "is_sensitive": False,
+        },
+    )
+    assert updated_trap.status_code == 200
+    assert client.delete(f"/traps/{trap['id']}", headers=coord).status_code == 204
+    assert client.delete(f"/trap-lines/{line['id']}", headers=coord).status_code == 204
+
+
+def test_coordinator_user_crud(client, coord):
+    created = client.post(
+        "/users",
+        headers=coord,
+        json={
+            "name": "Volunteer Two",
+            "email": "vol2@example.com",
+            "password": "Passw0rd123",
+            "role": "volunteer",
+        },
+    )
+    assert created.status_code == 201
+    user_id = created.json()["id"]
+    assert client.get("/users", headers=coord).status_code == 200
+
+    updated = client.put(
+        f"/users/{user_id}",
+        headers=coord,
+        json={
+            "name": "Volunteer Updated",
+            "email": "vol2@example.com",
+            "role": "coordinator",
+            "can_view_exact_location": True,
+        },
+    )
+    assert updated.status_code == 200
+    assert client.delete(f"/users/{user_id}", headers=coord).status_code == 204
+
+
 def test_invalid_status_and_unknown_trap(client, vol, coord):
     _, trap = _setup_sensitive_trap(client, coord)
     assert (

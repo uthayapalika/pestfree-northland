@@ -3,18 +3,101 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Pest-Free Northland Tracker</title>
-  <meta name="theme-color" content="#0F6E56">
-  <link rel="manifest" href="manifest.json">
-  <link rel="icon" href="icons/icon-192.png">
+  <title>Pest-Free Northland Tracker — Protect native wildlife</title>
+  <meta name="description" content="Monitor pest traps, record catches and help protect Northland's native wildlife.">
+  <meta name="theme-color" content="#08110F">
+  <link rel="icon" type="image/png" href="assets/icons/icon-192.png">
+  <link rel="apple-touch-icon" href="assets/icons/icon-192.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="assets/style.css">
 </head>
 <body>
-  <p><a href="login.html">Continue to the Pest-Free Northland Tracker</a></p>
-  <script src="config.js"></script>
-  <script src="js/api.js"></script>
-  <script>
-    // Home page: send people to the dashboard if logged in, otherwise to the login page.
-    location.replace(Auth.token ? "dashboard.html" : "login.html");
-  </script>
+  <header class="header">
+    <nav class="container nav">
+      <a class="brand" href="index.html"><span class="bi-logo"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l5 6h-3l4 5h-4l3 4H7l3-4H6l4-5H7z"/><path d="M12 18v3"/></svg></span><span>Pest-Free<small>Protect our future</small></span></a>
+      <div class="nav-links" id="navLinks">
+        <a href="#mission">Our mission</a>
+        <a href="#platform">Platform</a>
+        <a href="#community">Community</a>
+      </div>
+      <div class="nav-right">
+        <a href="admin/login.html" class="login">Login</a>
+        <a href="admin/register.html" class="btn btn-primary">Get started</a>
+        <button class="menu-toggle" id="menuToggle" aria-label="Menu" aria-expanded="false">☰</button>
+      </div>
+    </nav>
+  </header>
+
+  <!-- Slideshow banner -->
+  <section class="slider" id="mission" aria-roledescription="carousel">
+    <div class="slide active" style="background-image:url(assets/images/hero.jpg)" data-kicker="A community-powered mission" data-title="Protect our land." data-accent="Create a pest-free future." data-text="Join communities across Northland to monitor pest traps, record catches and help protect our native wildlife."></div>
+    <div class="slide" style="background-image:url(assets/images/slide-trap.jpg)" data-kicker="Trap monitoring made simple" data-title="Every check counts." data-accent="Record it in seconds." data-text="Log trap checks and catches on the go, so your whole crew sees the same picture."></div>
+    <div class="slide" style="background-image:url(assets/images/slide-coast.jpg)" data-kicker="Northland, New Zealand" data-title="One region." data-accent="One shared mission." data-text="Help protect the forests, birds and coastlines that make Northland special for generations to come."></div>
+    <div class="slider-overlay"></div>
+
+    <div class="container slider-content">
+      <div class="slide-text" id="slideText">
+        <span class="eyebrow"><span class="pulse"></span><span id="sKicker"></span></span>
+        <h1><span id="sTitle"></span> <em id="sAccent"></em></h1>
+        <p id="sText"></p>
+        <div class="actions">
+          <a href="#community" class="btn btn-primary">Join the movement →</a>
+          <a href="#platform" class="btn btn-outline">Explore the platform</a>
+        </div>
+      </div>
+    </div>
+
+    <div class="container slider-controls">
+      <div class="dots" id="dots"></div>
+      <div class="arrows">
+        <button class="arrow" id="prev" aria-label="Previous slide">‹</button>
+        <button class="arrow" id="next" aria-label="Next slide">›</button>
+      </div>
+    </div>
+  </section>
+
+  <main class="container">
+    <section class="stats">
+      <div class="card"><div class="card-top"><span class="ico">◎</span><span class="tag">Track</span></div><h3>Trap monitoring</h3><p>Record trap activity and keep observations organised.</p></div>
+      <div class="card"><div class="card-top"><span class="ico">✎</span><span class="tag">Record</span></div><h3>Catch records</h3><p>Log what you find so the whole crew sees the same picture.</p></div>
+      <div class="card"><div class="card-top"><span class="ico">✓</span><span class="tag">Protect</span></div><h3>Local action</h3><p>Support conservation through community participation.</p></div>
+    </section>
+
+    <section class="platform" id="platform">
+      <p class="kicker">The platform</p>
+      <div class="section-head">
+        <h2>Small actions.<br>Lasting impact.</h2>
+        <p>A central place for community members to record observations, manage trap information and support Northland's conservation efforts.</p>
+      </div>
+      <div class="grid">
+        <div class="card feature"><span class="ico">▤</span><h3>Trap management</h3><p>Keep trap details, locations and monitoring records together in one place.</p><a href="#community" class="link">Learn more →</a></div>
+        <div class="card feature"><span class="ico">⌖</span><h3>Location mapping</h3><p>See every trap and trap line on a map, and plan your next visit.</p><a href="#community" class="link">Learn more →</a></div>
+        <div class="card feature"><span class="ico">▥</span><h3>Reports</h3><p>Turn recorded checks and catches into clear summaries for your team.</p><a href="#community" class="link">Learn more →</a></div>
+      </div>
+    </section>
+
+    <section class="cta" id="community">
+      <div>
+        <p class="kicker">Be part of the change</p>
+        <h2>Northland's future is in our hands.</h2>
+        <p>Create an account to take part in the mission, record observations and support a healthier environment for future generations.</p>
+      </div>
+      <div class="actions">
+        <a href="admin/register.html" class="btn btn-primary">Get started today</a>
+        <a href="admin/login.html" class="btn btn-outline">Login</a>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <div class="container footer-inner">
+      <p>© <span id="year"></span> Pest-Free Northland Tracker</p>
+      <div class="footer-links"><a href="#">Home</a><a href="admin/login.html">Login</a><a href="admin/register.html">Register</a></div>
+    </div>
+  </footer>
+
+  <script src="assets/script.js"></script>
 </body>
 </html>
