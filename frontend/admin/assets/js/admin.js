@@ -30,31 +30,67 @@ function showError(err) {
   box.classList.remove("d-none");
 }
 
-// Draw the top menu + page title, and put `inner` HTML underneath.
+const LOGO = `<span class="bi-logo"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l5 6h-3l4 5h-4l3 4H7l3-4H6l4-5H7z"/><path d="M12 18v3"/></svg></span>`;
+const themeToggle = () =>
+  `<button type="button" class="icon-btn" data-theme-toggle aria-label="Toggle light or dark mode" title="Light / dark">
+     <i class="bi bi-sun-fill theme-icon-light"></i><i class="bi bi-moon-stars-fill theme-icon-dark"></i>
+   </button>`;
+
+function closeSidebar() {
+  document.getElementById("sb")?.classList.remove("open");
+  document.getElementById("sbOverlay")?.classList.remove("open");
+}
+
+// Draw the sidebar + top bar, and put `inner` HTML underneath.
 function shell(title, inner) {
   const links = NAV.filter((n) => !n[3] || isCoord()).map(([id, label, icon]) =>
     `<a class="nav-link ${id === PAGE ? "active" : ""}" href="${id}.html"><i class="bi bi-${icon}"></i> ${label}</a>`
   ).join("");
+  const initial = esc((me.name || me.email || "?").trim().charAt(0).toUpperCase());
   content.innerHTML = `
-    <nav class="navbar border-bottom px-3"><div class="container-fluid">
-      <span class="navbar-brand">Pest-Free</span>
-      <div class="navbar-nav flex-row flex-wrap gap-3 me-auto">${links}</div>
-      <span id="pending" class="badge text-bg-warning me-2 d-none"></span>
-      <span class="small text-secondary me-3">${esc(me.name || me.email)}${me.role ? " (" + esc(me.role) + ")" : ""}</span>
-      <button id="out" class="btn btn-sm btn-outline-secondary">Log out</button>
-    </div></nav>
-    <main class="container-fluid p-4">
-      <h1 class="h3 mb-4">${title}</h1>
-      <div id="err" class="alert alert-danger d-none"></div>${inner}
-    </main>`;
+    <div class="app">
+      <div class="sb-overlay" id="sbOverlay"></div>
+      <aside class="sb" id="sb">
+        <a class="brand sb-brand" href="../index.html">${LOGO}<span>Pest-Free<small>Admin panel</small></span></a>
+        <nav class="sb-nav">${links}</nav>
+        <div class="sb-foot">
+          <div class="user-chip">
+            <div class="user-avatar">${initial}</div>
+            <div class="meta">
+              <div class="name">${esc(me.name || me.email)}</div>
+              <div class="role">${esc(me.role || "")}</div>
+            </div>
+          </div>
+          <button id="out" class="btn btn-sm btn-outline-secondary w-100">Log out</button>
+        </div>
+      </aside>
+      <div class="app-main">
+        <header class="top">
+          <button type="button" class="icon-btn menu-btn" id="menuBtn" aria-label="Open menu"><i class="bi bi-list"></i></button>
+          <h1 class="page-title">${title}</h1>
+          <div class="top-actions">
+            <span id="pending" class="badge text-bg-warning d-none"></span>
+            ${themeToggle()}
+          </div>
+        </header>
+        <main class="page-body">
+          <div id="err" class="alert alert-danger d-none"></div>${inner}
+        </main>
+      </div>
+    </div>`;
   document.getElementById("out").onclick = logout;
+  document.getElementById("menuBtn").onclick = () => {
+    document.getElementById("sb").classList.toggle("open");
+    document.getElementById("sbOverlay").classList.toggle("open");
+  };
+  document.getElementById("sbOverlay").onclick = closeSidebar;
   if (window.updatePending) updatePending();
 }
 
 // A small statistic card. `tone` = optional text colour class.
 const card = (label, value, tone = "") =>
-  `<div class="col-6 col-md-4 col-lg"><div class="card"><div class="card-body">
-   <div class="text-secondary small">${label}</div><div class="h2 mb-0 ${tone}">${value}</div></div></div></div>`;
+  `<div class="col-6 col-md-4 col-lg"><div class="card stat h-100"><div class="card-body">
+   <div class="stat-label">${label}</div><div class="stat-value ${tone}">${value}</div></div></div></div>`;
 
 // Count how many times each value appears. e.g. count(catches, "species")
 function count(items, field) {
@@ -85,8 +121,9 @@ function drawChart(id, type, labels, values, colors, horizontal) {
   const note = (t) => { el.parentElement.innerHTML = `<p class="text-secondary small">${t}</p>`; };
   if (!window.Chart) return note("Charts could not load (are you offline?).");
   if (!values.some((v) => v > 0)) return note("No data yet.");
-  Chart.defaults.color = "#9db3a8";
-  Chart.defaults.borderColor = "rgba(255,255,255,.08)";
+  const theme = getComputedStyle(document.documentElement);
+  Chart.defaults.color = theme.getPropertyValue("--muted").trim() || "#9db3a8";
+  Chart.defaults.borderColor = theme.getPropertyValue("--chart-grid").trim() || "rgba(255,255,255,.08)";
   const round = type === "doughnut";
   const axis = { beginAtZero: true, ticks: { precision: 0 } };
   new Chart(el, {
@@ -179,8 +216,12 @@ async function dashboardPage() {
 
 // ================= MESSAGE BOXES (SweetAlert2) =================
 // Common look for every pop-up (dark theme, same buttons as the site).
+function boxColors() {
+  const s = getComputedStyle(document.documentElement);
+  return { background: s.getPropertyValue("--card-bg").trim() || "#10201b", color: s.getPropertyValue("--text").trim() || "#e8f0ec" };
+}
 const Box = Swal.mixin({
-  background: "#10201b", color: "#e8f0ec", buttonsStyling: false,
+  ...boxColors(), buttonsStyling: false,
   customClass: { confirmButton: "btn btn-primary mx-1", cancelButton: "btn btn-outline-secondary mx-1" },
 });
 // Small message in the corner that disappears by itself.
@@ -298,7 +339,7 @@ async function mapPage() {
         <label class="form-check-label small" for="onlyDue">Only overdue / needs attention</label></div>
       <span class="text-secondary small">${isCoord() ? "Click the map to add a trap there." : "Tap a marker for details."}</span>
     </div>
-    <div id='map' style='height:70vh;border-radius:12px'></div>`);
+    <div id='map' style='height:70vh;border-radius:18px;overflow:hidden'></div>`);
 
   // Create the map, centred on Whangarei.
   const map = L.map("map").setView([-35.725, 174.32], 10);
@@ -431,14 +472,15 @@ async function tablePage() {
 
     // Build the table.
     const cell = (f, r) => (f === "check_state" ? stateBadge(r) : esc(r[f]));
-    const head = ["id", ...fields].map((f) => `<th>${esc(f)}</th>`).join("") + "<th></th>";
+    const pretty = (f) => LABELS[f] || f.replace(/_/g, " ");
+    const head = ["id", ...fields].map((f) => `<th>${esc(pretty(f))}</th>`).join("") + "<th></th>";
     const body = rows.map((r) => `<tr>` + ["id", ...fields].map((f) => `<td>${cell(f, r)}</td>`).join("") +
       `<td class="text-end text-nowrap">
         ${PAGE === "traps" && isCoord() ? `<button class="btn btn-sm btn-outline-secondary" data-qr="${esc(r.id)}" title="QR code"><i class="bi bi-qr-code"></i></button>` : ""}
         ${cfg.update && can("edit") ? `<button class="btn btn-sm btn-outline-primary" data-edit="${esc(r.id)}"><i class="bi bi-pencil"></i> Edit</button>` : ""}
         ${cfg.remove && can("delete") ? `<button class="btn btn-sm btn-outline-danger" data-del="${esc(r.id)}"><i class="bi bi-trash"></i> Delete</button>` : ""}</td></tr>`).join("");
     document.getElementById("body").innerHTML =
-      `<div class="table-responsive"><table id="tbl" class="table"><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div>`;
+      `<div class="card"><div class="card-body table-responsive"><table id="tbl" class="table mb-0"><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div></div>`;
 
     // Make the table searchable/sortable if DataTables is loaded.
     if (window.jQuery && jQuery.fn.DataTable && rows.length) jQuery("#tbl").DataTable();
@@ -685,17 +727,29 @@ async function reportsPage(group = "line") {
 // ================= SETTINGS =================
 async function settingsPage() {
   shell("Settings", `
-    <div class="card" style="max-width:480px"><div class="card-body">
-      <p><b>Name:</b> ${esc(me.name)}</p>
-      <p><b>Email:</b> ${esc(me.email)}</p>
-      <p><b>Role:</b> ${esc(me.role)}</p>
-      <p><b>Exact trap locations:</b> ${isCoord() || me.can_view_exact_location ? "Yes" : "No"}</p>
-      <p><b>API address:</b> ${esc(API_URL)}</p>
-      <p><b>Overdue rules:</b> amber after ${dueDays()} days, red after ${overdueDays()} days (change them in config.js)</p>
-      <p><b>Waiting to upload:</b> <span id="qn">${Outbox.count()}</span> <button id="sync" class="btn btn-sm btn-outline-primary ms-2">Sync now</button></p>
-      <button id="install" class="btn btn-outline-primary mb-3 d-none"><i class="bi bi-phone"></i> Install app on this device</button><br>
-      <button id="out2" class="btn btn-outline-danger">Log out</button>
-    </div></div>`);
+    <div class="row g-4" style="max-width:720px">
+      <div class="col-md-6"><div class="card h-100"><div class="card-body">
+        <p class="text-uppercase small fw-bold mb-3" style="letter-spacing:.12em;color:var(--accent)">Appearance</p>
+        <p class="text-secondary small">Matches the Pest-Free public site. Your choice is saved on this device.</p>
+        <div class="theme-picks">
+          <button type="button" class="theme-pick" data-theme-set="dark"><i class="bi bi-moon-stars me-1"></i> Dark</button>
+          <button type="button" class="theme-pick" data-theme-set="light"><i class="bi bi-sun me-1"></i> Light</button>
+        </div>
+      </div></div></div>
+      <div class="col-md-6"><div class="card h-100"><div class="card-body">
+        <p class="text-uppercase small fw-bold mb-3" style="letter-spacing:.12em;color:var(--accent)">Account</p>
+        <p><b>Name:</b> ${esc(me.name)}</p>
+        <p><b>Email:</b> ${esc(me.email)}</p>
+        <p><b>Role:</b> ${esc(me.role)}</p>
+        <p><b>Exact trap locations:</b> ${isCoord() || me.can_view_exact_location ? "Yes" : "No"}</p>
+        <p><b>API address:</b> ${esc(API_URL)}</p>
+        <p><b>Overdue rules:</b> amber after ${dueDays()} days, red after ${overdueDays()} days (change them in config.js)</p>
+        <p class="mb-3"><b>Waiting to upload:</b> <span id="qn">${Outbox.count()}</span> <button id="sync" class="btn btn-sm btn-outline-primary ms-2">Sync now</button></p>
+        <button id="install" class="btn btn-outline-primary mb-3 d-none"><i class="bi bi-phone"></i> Install app on this device</button>
+        <button id="out2" class="btn btn-outline-danger">Log out</button>
+      </div></div></div>
+    </div>`);
+  if (window.PFNTheme) PFNTheme.set(PFNTheme.get());
   document.getElementById("out2").onclick = logout;
   document.getElementById("sync").onclick = async () => {
     const r = await Outbox.flush();
