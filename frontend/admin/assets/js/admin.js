@@ -115,6 +115,7 @@ async function loadChecks(traps) {
 
 // Draw one Chart.js chart inside <canvas id=...>. Shows a note instead if there is nothing to draw.
 const CHART_COLORS = ["#3fb27f", "#4dabf7", "#e0a526", "#e5534b", "#9b7be0", "#e07bb5", "#8b9a93"];
+const charts = Object.create(null);
 function drawChart(id, type, labels, values, colors, horizontal) {
   const el = document.getElementById(id);
   if (!el) return;
@@ -126,16 +127,28 @@ function drawChart(id, type, labels, values, colors, horizontal) {
   Chart.defaults.borderColor = theme.getPropertyValue("--chart-grid").trim() || "rgba(255,255,255,.08)";
   const round = type === "doughnut";
   const axis = { beginAtZero: true, ticks: { precision: 0 } };
-  new Chart(el, {
+  charts[id] = new Chart(el, {
     type,
-    data: { labels, datasets: [{ data: values, backgroundColor: colors || CHART_COLORS[0], borderWidth: 0, borderRadius: round ? 0 : 6 }] },
+    data: {
+      labels: labels.map((label) => window.pfnTranslate ? window.pfnTranslate(label) : label),
+      datasets: [{ data: values, backgroundColor: colors || CHART_COLORS[0], borderWidth: 0, borderRadius: round ? 0 : 6 }],
+    },
     options: {
       maintainAspectRatio: false, indexAxis: horizontal ? "y" : "x",
       plugins: { legend: { display: round, position: "bottom" } },
       scales: round ? {} : horizontal ? { x: axis } : { y: axis },
     },
   });
+  charts[id].sourceLabels = labels;
 }
+document.addEventListener("pfn-language-change", (event) => {
+  Object.values(charts).forEach((chart) => {
+    chart.data.labels = chart.labelForLanguage
+      ? chart.labelForLanguage(event.detail.language)
+      : chart.sourceLabels.map((label) => window.pfnTranslate ? window.pfnTranslate(label) : label);
+    chart.update();
+  });
+});
 
 const chartCard = (title, id, cols = "col-lg-6") =>
   `<div class="${cols}"><div class="card h-100"><div class="card-body"><h2 class="h6 mb-3">${title}</h2>
@@ -198,7 +211,13 @@ async function dashboardPage() {
     for (let i = 11; i >= 0; i--) { const d = new Date(now.getFullYear(), now.getMonth() - i, 1); months.push(d.getFullYear() + "-" + pad(d.getMonth() + 1)); }
     const perMonth = Object.fromEntries(months.map((m) => [m, 0]));
     catches.forEach((c) => { const d = parseDate(c.recorded_at); if (!d) return; const k = d.getFullYear() + "-" + pad(d.getMonth() + 1); if (k in perMonth) perMonth[k]++; });
-    drawChart("cMonth", "bar", months.map((k) => { const [y, m] = k.split("-"); return new Date(+y, +m - 1, 1).toLocaleDateString(undefined, { month: "short", year: "2-digit" }); }), months.map((m) => perMonth[m]));
+    const monthLabels = (lang) => months.map((k) => {
+      const [y, m] = k.split("-");
+      const locale = lang === "mi" ? "mi-NZ" : undefined;
+      return new Date(+y, +m - 1, 1).toLocaleDateString(locale, { month: "short", year: "2-digit" });
+    });
+    drawChart("cMonth", "bar", monthLabels(document.documentElement.lang), months.map((m) => perMonth[m]));
+    if (charts.cMonth) charts.cMonth.labelForLanguage = monthLabels;
 
     const bySpecies = count(catches, "species");
     drawChart("cSpecies", "doughnut", Object.keys(bySpecies), Object.values(bySpecies), CHART_COLORS);

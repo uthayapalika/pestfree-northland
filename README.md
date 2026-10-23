@@ -1,4 +1,4 @@
-# Pest-Free Northland Tracker (backend)
+# Pest-Free Tracker (backend)
 
 1. Create an environment and install:  python -m venv .venv
    then activate it and run:  pip install -r requirements.txt
