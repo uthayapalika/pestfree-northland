@@ -102,6 +102,40 @@ def test_duplicate_trap_code_and_sensitive_needs_coordinates(client, coord):
     assert bad.status_code == 400
 
 
+def test_trap_code_is_generated_and_preserved_when_omitted(client, coord):
+    line = client.post(
+        "/trap-lines",
+        json={"name": "Auto Code Line", "general_area": "Northland"},
+        headers=coord,
+    ).json()
+    url = f"/trap-lines/{line['id']}/traps"
+    first = client.post(
+        url,
+        headers=coord,
+        json={"trap_type": "rat", "general_area": "Hills"},
+    )
+    second = client.post(
+        url,
+        headers=coord,
+        json={"trap_type": "stoat", "general_area": "Ridge"},
+    )
+
+    assert first.status_code == second.status_code == 201
+    first_code = first.json()["code"]
+    second_code = second.json()["code"]
+    assert first_code.startswith("TRAP-")
+    assert second_code.startswith("TRAP-") and second_code != first_code
+
+    updated = client.put(
+        f"/traps/{first.json()['id']}",
+        headers=coord,
+        json={"trap_type": "possum", "general_area": "Forest"},
+    )
+    assert updated.status_code == 200
+    traps = client.get(url, headers=coord).json()
+    assert next(t for t in traps if t["id"] == first.json()["id"])["code"] == first_code
+
+
 def test_check_catch_and_last_status(client, coord, vol):
     line, trap = _setup_sensitive_trap(client, coord)
     check = client.post(

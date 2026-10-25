@@ -1,9 +1,9 @@
-# Pest-Free Northland Tracker (backend)
+# Pest-Free Tracker (backend)
 
 1. Create an environment and install:  python -m venv .venv
    then activate it and run:  pip install -r requirements.txt
 2. Create sample data:  python -m app.seed
-3. Start the server:  uvicorn app.main:app
+3. Start the server:  python -m uvicorn app.main:app --reload
    Open http://127.0.0.1:8000/docs
    The web app is served by the same server at http://127.0.0.1:8000/
    Open the tracker at http://127.0.0.1:8000/admin/login.html

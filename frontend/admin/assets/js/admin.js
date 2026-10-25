@@ -30,31 +30,67 @@ function showError(err) {
   box.classList.remove("d-none");
 }
 
-// Draw the top menu + page title, and put `inner` HTML underneath.
+const LOGO = `<span class="bi-logo"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l5 6h-3l4 5h-4l3 4H7l3-4H6l4-5H7z"/><path d="M12 18v3"/></svg></span>`;
+const themeToggle = () =>
+  `<button type="button" class="icon-btn" data-theme-toggle aria-label="Toggle light or dark mode" title="Light / dark">
+     <i class="bi bi-sun-fill theme-icon-light"></i><i class="bi bi-moon-stars-fill theme-icon-dark"></i>
+   </button>`;
+
+function closeSidebar() {
+  document.getElementById("sb")?.classList.remove("open");
+  document.getElementById("sbOverlay")?.classList.remove("open");
+}
+
+// Draw the sidebar + top bar, and put `inner` HTML underneath.
 function shell(title, inner) {
   const links = NAV.filter((n) => !n[3] || isCoord()).map(([id, label, icon]) =>
     `<a class="nav-link ${id === PAGE ? "active" : ""}" href="${id}.html"><i class="bi bi-${icon}"></i> ${label}</a>`
   ).join("");
+  const initial = esc((me.name || me.email || "?").trim().charAt(0).toUpperCase());
   content.innerHTML = `
-    <nav class="navbar border-bottom px-3"><div class="container-fluid">
-      <span class="navbar-brand">Pest-Free</span>
-      <div class="navbar-nav flex-row flex-wrap gap-3 me-auto">${links}</div>
-      <span id="pending" class="badge text-bg-warning me-2 d-none"></span>
-      <span class="small text-secondary me-3">${esc(me.name || me.email)}${me.role ? " (" + esc(me.role) + ")" : ""}</span>
-      <button id="out" class="btn btn-sm btn-outline-secondary">Log out</button>
-    </div></nav>
-    <main class="container-fluid p-4">
-      <h1 class="h3 mb-4">${title}</h1>
-      <div id="err" class="alert alert-danger d-none"></div>${inner}
-    </main>`;
+    <div class="app">
+      <div class="sb-overlay" id="sbOverlay"></div>
+      <aside class="sb" id="sb">
+        <a class="brand sb-brand" href="../index.html">${LOGO}<span>Pest-Free<small>Admin panel</small></span></a>
+        <nav class="sb-nav">${links}</nav>
+        <div class="sb-foot">
+          <div class="user-chip">
+            <div class="user-avatar">${initial}</div>
+            <div class="meta">
+              <div class="name">${esc(me.name || me.email)}</div>
+              <div class="role">${esc(me.role || "")}</div>
+            </div>
+          </div>
+          <button id="out" class="btn btn-sm btn-outline-secondary w-100">Log out</button>
+        </div>
+      </aside>
+      <div class="app-main">
+        <header class="top">
+          <button type="button" class="icon-btn menu-btn" id="menuBtn" aria-label="Open menu"><i class="bi bi-list"></i></button>
+          <h1 class="page-title">${title}</h1>
+          <div class="top-actions">
+            <span id="pending" class="badge text-bg-warning d-none"></span>
+            ${themeToggle()}
+          </div>
+        </header>
+        <main class="page-body">
+          <div id="err" class="alert alert-danger d-none"></div>${inner}
+        </main>
+      </div>
+    </div>`;
   document.getElementById("out").onclick = logout;
+  document.getElementById("menuBtn").onclick = () => {
+    document.getElementById("sb").classList.toggle("open");
+    document.getElementById("sbOverlay").classList.toggle("open");
+  };
+  document.getElementById("sbOverlay").onclick = closeSidebar;
   if (window.updatePending) updatePending();
 }
 
 // A small statistic card. `tone` = optional text colour class.
 const card = (label, value, tone = "") =>
-  `<div class="col-6 col-md-4 col-lg"><div class="card"><div class="card-body">
-   <div class="text-secondary small">${label}</div><div class="h2 mb-0 ${tone}">${value}</div></div></div></div>`;
+  `<div class="col-6 col-md-4 col-lg"><div class="card stat h-100"><div class="card-body">
+   <div class="stat-label">${label}</div><div class="stat-value ${tone}">${value}</div></div></div></div>`;
 
 // Count how many times each value appears. e.g. count(catches, "species")
 function count(items, field) {
@@ -79,26 +115,40 @@ async function loadChecks(traps) {
 
 // Draw one Chart.js chart inside <canvas id=...>. Shows a note instead if there is nothing to draw.
 const CHART_COLORS = ["#3fb27f", "#4dabf7", "#e0a526", "#e5534b", "#9b7be0", "#e07bb5", "#8b9a93"];
+const charts = Object.create(null);
 function drawChart(id, type, labels, values, colors, horizontal) {
   const el = document.getElementById(id);
   if (!el) return;
   const note = (t) => { el.parentElement.innerHTML = `<p class="text-secondary small">${t}</p>`; };
   if (!window.Chart) return note("Charts could not load (are you offline?).");
   if (!values.some((v) => v > 0)) return note("No data yet.");
-  Chart.defaults.color = "#9db3a8";
-  Chart.defaults.borderColor = "rgba(255,255,255,.08)";
+  const theme = getComputedStyle(document.documentElement);
+  Chart.defaults.color = theme.getPropertyValue("--muted").trim() || "#9db3a8";
+  Chart.defaults.borderColor = theme.getPropertyValue("--chart-grid").trim() || "rgba(255,255,255,.08)";
   const round = type === "doughnut";
   const axis = { beginAtZero: true, ticks: { precision: 0 } };
-  new Chart(el, {
+  charts[id] = new Chart(el, {
     type,
-    data: { labels, datasets: [{ data: values, backgroundColor: colors || CHART_COLORS[0], borderWidth: 0, borderRadius: round ? 0 : 6 }] },
+    data: {
+      labels: labels.map((label) => window.pfnTranslate ? window.pfnTranslate(label) : label),
+      datasets: [{ data: values, backgroundColor: colors || CHART_COLORS[0], borderWidth: 0, borderRadius: round ? 0 : 6 }],
+    },
     options: {
       maintainAspectRatio: false, indexAxis: horizontal ? "y" : "x",
       plugins: { legend: { display: round, position: "bottom" } },
       scales: round ? {} : horizontal ? { x: axis } : { y: axis },
     },
   });
+  charts[id].sourceLabels = labels;
 }
+document.addEventListener("pfn-language-change", (event) => {
+  Object.values(charts).forEach((chart) => {
+    chart.data.labels = chart.labelForLanguage
+      ? chart.labelForLanguage(event.detail.language)
+      : chart.sourceLabels.map((label) => window.pfnTranslate ? window.pfnTranslate(label) : label);
+    chart.update();
+  });
+});
 
 const chartCard = (title, id, cols = "col-lg-6") =>
   `<div class="${cols}"><div class="card h-100"><div class="card-body"><h2 class="h6 mb-3">${title}</h2>
@@ -161,7 +211,13 @@ async function dashboardPage() {
     for (let i = 11; i >= 0; i--) { const d = new Date(now.getFullYear(), now.getMonth() - i, 1); months.push(d.getFullYear() + "-" + pad(d.getMonth() + 1)); }
     const perMonth = Object.fromEntries(months.map((m) => [m, 0]));
     catches.forEach((c) => { const d = parseDate(c.recorded_at); if (!d) return; const k = d.getFullYear() + "-" + pad(d.getMonth() + 1); if (k in perMonth) perMonth[k]++; });
-    drawChart("cMonth", "bar", months.map((k) => { const [y, m] = k.split("-"); return new Date(+y, +m - 1, 1).toLocaleDateString(undefined, { month: "short", year: "2-digit" }); }), months.map((m) => perMonth[m]));
+    const monthLabels = (lang) => months.map((k) => {
+      const [y, m] = k.split("-");
+      const locale = lang === "mi" ? "mi-NZ" : undefined;
+      return new Date(+y, +m - 1, 1).toLocaleDateString(locale, { month: "short", year: "2-digit" });
+    });
+    drawChart("cMonth", "bar", monthLabels(document.documentElement.lang), months.map((m) => perMonth[m]));
+    if (charts.cMonth) charts.cMonth.labelForLanguage = monthLabels;
 
     const bySpecies = count(catches, "species");
     drawChart("cSpecies", "doughnut", Object.keys(bySpecies), Object.values(bySpecies), CHART_COLORS);
@@ -179,8 +235,12 @@ async function dashboardPage() {
 
 // ================= MESSAGE BOXES (SweetAlert2) =================
 // Common look for every pop-up (dark theme, same buttons as the site).
+function boxColors() {
+  const s = getComputedStyle(document.documentElement);
+  return { background: s.getPropertyValue("--card-bg").trim() || "#10201b", color: s.getPropertyValue("--text").trim() || "#e8f0ec" };
+}
 const Box = Swal.mixin({
-  background: "#10201b", color: "#e8f0ec", buttonsStyling: false,
+  ...boxColors(), buttonsStyling: false,
   customClass: { confirmButton: "btn btn-primary mx-1", cancelButton: "btn btn-outline-secondary mx-1" },
 });
 // Small message in the corner that disappears by itself.
@@ -204,6 +264,11 @@ const confirmDelete = () => Box.fire({
 function openForm(title, fields, values = {}, save, choices = {}) {
   return new Promise((resolve) => {
     const lists = {}; // the dropdown options actually shown, per field
+    const hasLocationPicker = fields.includes("exact_lat") && fields.includes("exact_lng");
+    const hasLocation = values.exact_lat !== null && values.exact_lat !== undefined && values.exact_lat !== "" &&
+      values.exact_lng !== null && values.exact_lng !== undefined && values.exact_lng !== "" &&
+      Number.isFinite(Number(values.exact_lat)) && Number.isFinite(Number(values.exact_lng));
+    const autoLocate = hasLocationPicker && !hasLocation && title.toLowerCase().startsWith("add ");
     // Pick the input type from the field name / current value.
     const typeOf = (f, v) => (typeof v === "number" || /^(lat|lng)$|_id$|_lat$|_lng$/.test(f)) ? "number"
                            : /email/.test(f) ? "email" : /password/.test(f) ? "password" : /_at$/.test(f) ? "datetime-local" : /date/.test(f) ? "date" : "text";
@@ -211,6 +276,21 @@ function openForm(title, fields, values = {}, save, choices = {}) {
     // One input per field (everything is required except description/notes).
     const inputs = fields.map((f) => {
       const label = LABELS[f] || f.replace(/_/g, " ");
+
+      if (hasLocationPicker && f === "exact_lat") {
+        return `<div class="mb-3">
+          <label class="form-label small text-secondary">Trap location</label>
+          <div id="trap-location-map" class="trap-location-map rounded"></div>
+          <div id="trap-location-status" class="form-text">${hasLocation
+            ? `Pinned at ${esc(Number(values.exact_lat).toFixed(6))}, ${esc(Number(values.exact_lng).toFixed(6))}`
+            : autoLocate
+              ? "Finding your location... Allow location access when your browser asks."
+              : "Click the map to place a pin. A location is required."}</div>
+          <input type="hidden" name="exact_lat" value="${hasLocation ? esc(values.exact_lat) : ""}">
+          <input type="hidden" name="exact_lng" value="${hasLocation ? esc(values.exact_lng) : ""}">
+        </div>`;
+      }
+      if (hasLocationPicker && f === "exact_lng") return "";
 
       // Dropdown field: the user picks from a list instead of typing.
       if (choices[f]) {
@@ -249,11 +329,18 @@ function openForm(title, fields, values = {}, save, choices = {}) {
     const modal = new bootstrap.Modal(el, { focus: false });
     const form = el.querySelector("form");
     let saved = false;
+    let locationMap;
 
     // Save pressed: check the fields, read them, call save().
     form.addEventListener("submit", async (e) => {
       e.preventDefault();
       form.classList.add("was-validated");
+      if (hasLocationPicker && (!form.elements.exact_lat.value || !form.elements.exact_lng.value)) {
+        const status = form.querySelector("#trap-location-status");
+        status.textContent = "Please click the map to place a pin before saving.";
+        status.classList.add("text-danger");
+        return;
+      }
       if (!form.checkValidity()) return; // browser highlights the missing field
 
       const data = {};
@@ -263,7 +350,8 @@ function openForm(title, fields, values = {}, save, choices = {}) {
           data[f] = lists[f].find((o) => String(o.value) === input.value).value;
           return;
         }
-        data[f] = input.type === "number" ? (input.value === "" ? null : Number(input.value)) : input.value.trim();
+        data[f] = input.type === "number" || f === "exact_lat" || f === "exact_lng"
+          ? (input.value === "" ? null : Number(input.value)) : input.value.trim();
       });
 
       // Show a spinner and block double clicks while saving.
@@ -282,8 +370,68 @@ function openForm(title, fields, values = {}, save, choices = {}) {
     });
 
     // When the modal has closed: clean up and report what happened.
-    el.addEventListener("hidden.bs.modal", () => { el.remove(); resolve(saved); });
-    el.addEventListener("shown.bs.modal", () => el.querySelector("input, select").focus());
+    el.addEventListener("hidden.bs.modal", () => {
+      if (locationMap) locationMap.remove();
+      el.remove();
+      resolve(saved);
+    });
+    el.addEventListener("shown.bs.modal", () => {
+      el.querySelector('input:not([type="hidden"]), select')?.focus();
+      if (!hasLocationPicker) return;
+      if (!window.L) {
+        fail(new Error("The map could not load. Check your internet connection and try again."));
+        return;
+      }
+      let locationSelected = hasLocation;
+      const lat = hasLocation ? Number(values.exact_lat) : -35.725;
+      const lng = hasLocation ? Number(values.exact_lng) : 174.32;
+      locationMap = L.map("trap-location-map").setView([lat, lng], hasLocation ? 15 : 10);
+      L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}", {
+        maxZoom: 19, attribution: "Tiles &copy; Esri",
+      }).addTo(locationMap);
+      let marker;
+      const setLocation = (point) => {
+        locationSelected = true;
+        const exactLat = Number(point.lat.toFixed(6));
+        const exactLng = Number(point.lng.toFixed(6));
+        form.elements.exact_lat.value = exactLat;
+        form.elements.exact_lng.value = exactLng;
+        const status = form.querySelector("#trap-location-status");
+        status.textContent = `Pinned at ${exactLat.toFixed(6)}, ${exactLng.toFixed(6)}`;
+        status.classList.remove("text-danger");
+        if (!marker) {
+          marker = L.marker(point, { draggable: true }).addTo(locationMap);
+          marker.on("dragend", () => setLocation(marker.getLatLng()));
+        } else {
+          marker.setLatLng(point);
+        }
+      };
+      if (hasLocation) {
+        marker = L.marker([lat, lng], { draggable: true }).addTo(locationMap);
+        marker.on("dragend", () => setLocation(marker.getLatLng()));
+      }
+      locationMap.on("click", (event) => setLocation(event.latlng));
+      locationMap.invalidateSize();
+      if (autoLocate) {
+        const status = form.querySelector("#trap-location-status");
+        if (!navigator.geolocation) {
+          status.textContent = "Location isn't available in this browser. Click the map to place a pin.";
+          return;
+        }
+        navigator.geolocation.getCurrentPosition((position) => {
+          if (!el.isConnected || locationSelected) return;
+          const point = { lat: position.coords.latitude, lng: position.coords.longitude };
+          locationMap.setView(point, 17);
+          setLocation(point);
+          status.textContent = "Your current location is pinned. Drag the pin if needed.";
+        }, (error) => {
+          if (!el.isConnected || locationSelected) return;
+          status.textContent = error.code === error.PERMISSION_DENIED
+            ? "Location access was denied. Allow access in your browser settings or click the map to place a pin."
+            : "Couldn't find your location. Check your device location settings or click the map to place a pin.";
+        }, { enableHighAccuracy: true, maximumAge: 60000, timeout: 12000 });
+      }
+    });
     modal.show();
   });
 }
@@ -298,7 +446,7 @@ async function mapPage() {
         <label class="form-check-label small" for="onlyDue">Only overdue / needs attention</label></div>
       <span class="text-secondary small">${isCoord() ? "Click the map to add a trap there." : "Tap a marker for details."}</span>
     </div>
-    <div id='map' style='height:70vh;border-radius:12px'></div>`);
+    <div id='map' style='height:70vh;border-radius:18px;overflow:hidden'></div>`);
 
   // Create the map, centred on Whangarei.
   const map = L.map("map").setView([-35.725, 174.32], 10);
@@ -401,7 +549,7 @@ async function loadChoices(fields) {
 const lineNames = async () => Object.fromEntries(list(await api.getLines()).map((l) => [l.id, l.name]));
 
 const CRUD = {
-  traps:   { title: "Traps",      one: "trap",      fields: ["code"], editFields: ["code", "trap_type", "general_area", "is_sensitive", "exact_lat", "exact_lng"], addFields: ["trap_line_id", "code", "trap_type", "general_area", "is_sensitive", "exact_lat", "exact_lng"],  load: api.getTraps,   add: api.addTrap,   update: api.updateTrap,   remove: api.deleteTrap,
+  traps:   { title: "Traps",      one: "trap",      fields: ["code"], editFields: ["trap_type", "general_area", "is_sensitive", "exact_lat", "exact_lng"], addFields: ["trap_line_id", "trap_type", "general_area", "is_sensitive", "exact_lat", "exact_lng"],  load: api.getTraps,   add: api.addTrap,   update: api.updateTrap,   remove: api.deleteTrap,
              // extra read-only columns: line name + overdue status
              decorate: async (rows) => { const ln = await lineNames(); rows.forEach((r) => { r.trap_line = ln[r.trap_line_id] || ""; r.check_state = trapState(r).label; }); } },
   lines:   { title: "Trap lines", one: "trap line", fields: ["name", "general_area"],          load: api.getLines,   add: api.addLine,   update: api.updateLine,   remove: api.deleteLine },
@@ -431,14 +579,15 @@ async function tablePage() {
 
     // Build the table.
     const cell = (f, r) => (f === "check_state" ? stateBadge(r) : esc(r[f]));
-    const head = ["id", ...fields].map((f) => `<th>${esc(f)}</th>`).join("") + "<th></th>";
+    const pretty = (f) => LABELS[f] || f.replace(/_/g, " ");
+    const head = ["id", ...fields].map((f) => `<th>${esc(pretty(f))}</th>`).join("") + "<th></th>";
     const body = rows.map((r) => `<tr>` + ["id", ...fields].map((f) => `<td>${cell(f, r)}</td>`).join("") +
       `<td class="text-end text-nowrap">
         ${PAGE === "traps" && isCoord() ? `<button class="btn btn-sm btn-outline-secondary" data-qr="${esc(r.id)}" title="QR code"><i class="bi bi-qr-code"></i></button>` : ""}
         ${cfg.update && can("edit") ? `<button class="btn btn-sm btn-outline-primary" data-edit="${esc(r.id)}"><i class="bi bi-pencil"></i> Edit</button>` : ""}
         ${cfg.remove && can("delete") ? `<button class="btn btn-sm btn-outline-danger" data-del="${esc(r.id)}"><i class="bi bi-trash"></i> Delete</button>` : ""}</td></tr>`).join("");
     document.getElementById("body").innerHTML =
-      `<div class="table-responsive"><table id="tbl" class="table"><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div>`;
+      `<div class="card"><div class="card-body table-responsive"><table id="tbl" class="table mb-0"><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div></div>`;
 
     // Make the table searchable/sortable if DataTables is loaded.
     if (window.jQuery && jQuery.fn.DataTable && rows.length) jQuery("#tbl").DataTable();
@@ -543,10 +692,14 @@ async function checkPage() {
   try { [traps, lines] = (await Promise.all([api.getTraps(), api.getLines()])).map(list); } catch (err) { return showError(err); }
   const lineName = Object.fromEntries(lines.map((l) => [l.id, l.name]));
   const STATUS = [["empty", "Empty", "check-circle"], ["caught", "Caught", "bug-fill"], ["bait_needed", "Bait needed", "basket"], ["sprung", "Sprung", "exclamation-triangle"]];
-  const S = { trap: null, status: "", species: "", notes: "", q: "", near: false, saving: false };
+  const S = {
+    trap: null, status: "", species: "", notes: "", q: "", near: false, saving: false,
+    nearMap: false, nearMessage: "", userPoint: null,
+  };
   const preset = new URLSearchParams(location.search).get("trap"); // from a QR code
   if (preset) S.trap = traps.find((t) => String(t.id) === preset) || null;
   const box = document.getElementById("body");
+  let nearbyMap;
 
   function listHtml() {
     const q = S.q.toLowerCase();
@@ -558,7 +711,60 @@ async function checkPage() {
       || "<p class='text-secondary'>No trap matches.</p>";
   }
 
+  function drawNearbyMap() {
+    if (!S.nearMap) return;
+    const mapElement = document.getElementById("nearby-trap-map");
+    if (!mapElement) return;
+    if (!window.L) {
+      mapElement.innerHTML = "<p class='p-3 text-secondary'>The map could not load. Search by trap code or line instead.</p>";
+      return;
+    }
+    const points = traps.filter((t) => t.exact_lat != null && t.exact_lng != null);
+    const center = S.userPoint || (points.length
+      ? [points[0].exact_lat, points[0].exact_lng]
+      : [-35.725, 174.32]);
+    nearbyMap = L.map(mapElement).setView(center, S.userPoint ? 14 : 10);
+    L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}", {
+      maxZoom: 19, attribution: "Tiles &copy; Esri",
+    }).addTo(nearbyMap);
+    if (S.userPoint) {
+      L.marker(S.userPoint, { title: "Your selected location" }).addTo(nearbyMap)
+        .bindPopup("<b>Your location</b>");
+    }
+    points.forEach((t) => {
+      const distance = t._d == null ? "" : `<br>${esc(fmtDist(t._d))} away`;
+      L.marker([t.exact_lat, t.exact_lng]).addTo(nearbyMap).bindPopup(
+        `<b>${esc(t.code)}</b><br>${esc(lineName[t.trap_line_id] || "")} - ${esc(t.trap_type)}<br>${esc(t.general_area || "")}${distance}
+         <br><button class="btn btn-sm btn-primary mt-2" data-act="pick" data-id="${esc(t.id)}">View trap details</button>`);
+    });
+    nearbyMap.on("click", (event) => {
+      S.userPoint = [event.latlng.lat, event.latlng.lng];
+      traps.forEach((t) => {
+        t._d = t.exact_lat == null || t.exact_lng == null
+          ? null : distanceM(S.userPoint[0], S.userPoint[1], t.exact_lat, t.exact_lng);
+      });
+      S.near = true;
+      S.nearMessage = "Location selected. Nearby traps are shown first; tap a marker or trap to view its details.";
+      render();
+    });
+    if (S.userPoint) {
+      const nearest = points.filter((t) => t._d != null)
+        .sort((a, b) => a._d - b._d)
+        .slice(0, 5)
+        .map((t) => [t.exact_lat, t.exact_lng]);
+      if (nearest.length) {
+        nearbyMap.fitBounds([S.userPoint, ...nearest], { padding: [24, 24], maxZoom: 15 });
+      }
+    } else if (points.length > 1) {
+      nearbyMap.fitBounds(points.map((t) => [t.exact_lat, t.exact_lng]), { padding: [24, 24] });
+    }
+  }
+
   function render() {
+    if (nearbyMap) {
+      nearbyMap.remove();
+      nearbyMap = null;
+    }
     const pending = Outbox.count();
     let html = pending ? `<div class="alert alert-warning d-flex justify-content-between align-items-center">
       <span>${pending} check${pending > 1 ? "s" : ""} waiting to upload</span><button class="btn btn-sm btn-warning" data-act="sync">Sync now</button></div>` : "";
@@ -566,13 +772,15 @@ async function checkPage() {
       html += `<div class="d-grid gap-2 mb-3">
           <button class="btn btn-primary btn-lg py-3" data-act="near"><i class="bi bi-crosshair"></i> Find nearest traps</button>
           <input id="q" class="form-control form-control-lg" placeholder="Search by trap code or line" value="${esc(S.q)}"></div>
+        ${S.nearMessage ? `<p class="small text-secondary">${esc(S.nearMessage)}</p>` : ""}
+        ${S.nearMap ? `<div id="nearby-trap-map" class="nearby-trap-map rounded mb-3"></div>` : ""}
         <div id="list">${listHtml()}</div>`;
     } else {
       const t = S.trap, ready = S.status && (S.status !== "caught" || S.species);
       html += `<button class="btn btn-sm btn-outline-secondary mb-3" data-act="back"><i class="bi bi-arrow-left"></i> Choose another trap</button>
         <div class="card mb-3"><div class="card-body">
           <div class="d-flex justify-content-between align-items-start"><div><div class="h3 mb-0">${esc(t.code)}</div>
-            <div class="text-secondary small">${esc(lineName[t.trap_line_id] || "")} - ${esc(t.trap_type)} - ${esc(t.general_area)}</div></div>${stateBadge(t)}</div>
+            <div class="text-secondary small">${esc(lineName[t.trap_line_id] || "")} - ${esc(t.trap_type)} - ${esc(t.general_area)}${t._d != null ? " - " + esc(fmtDist(t._d)) + " away" : ""}</div></div>${stateBadge(t)}</div>
           <div class="small mt-2">Last check: ${esc(ago(t.last_checked_at))}${t.last_status ? " (" + esc(t.last_status.replace("_", " ")) + ")" : ""}</div>
           <div class="small text-secondary">Suggested bait: ${esc(t.recommended_bait)}</div></div></div>
         <h2 class="h6">What did you find?</h2>
@@ -583,6 +791,7 @@ async function checkPage() {
         <button class="btn btn-primary btn-lg w-100 py-3" data-act="save" ${ready && !S.saving ? "" : "disabled"}>Save check</button>`;
     }
     box.innerHTML = html;
+    drawNearbyMap();
   }
 
   async function save() {
@@ -620,18 +829,33 @@ async function checkPage() {
     else if (act === "save") save();
     else if (act === "sync") Outbox.flush().then((r) => { if (r.sent) success(r.sent + " uploaded"); r.failed.forEach((f) => fail(new Error(f.label + ": " + f.error))); render(); });
     else if (act === "near") {
-      if (!navigator.geolocation) return fail(new Error("This device has no GPS."));
+      const showMapFallback = (message) => {
+        S.near = false;
+        S.nearMap = true;
+        S.userPoint = null;
+        S.nearMessage = message + " Click the map to choose your location and see nearby traps.";
+        traps.forEach((t) => { t._d = null; });
+        render();
+      };
+      if (!navigator.geolocation) return showMapFallback("This device cannot provide GPS location.");
       b.disabled = true; b.textContent = "Finding you...";
-      const stop = (msg) => { S.near = false; traps.forEach((t) => { t._d = null; }); fail(new Error(msg)); render(); };
+      const stop = (msg) => showMapFallback(msg);
       navigator.geolocation.getCurrentPosition((p) => {
+        S.userPoint = [p.coords.latitude, p.coords.longitude];
         traps.forEach((t) => { t._d = t.exact_lat == null || t.exact_lng == null ? null : distanceM(p.coords.latitude, p.coords.longitude, t.exact_lat, t.exact_lng); });
-        if (!traps.some((t) => t._d != null)) return stop("Your account cannot see exact trap locations. Search by code or scan the trap's QR code instead.");
-        S.near = true; render();
+        if (!traps.some((t) => t._d != null)) {
+          S.nearMap = false;
+          return stop("Your account cannot see exact trap locations. Search by code or scan the trap's QR code instead.");
+        }
+        S.near = true;
+        S.nearMap = true;
+        S.nearMessage = "Nearby traps are shown on the map and sorted by distance. Tap a marker or trap to view its details.";
+        render();
       }, (err) => {
         stop(err.code === 1
-          ? "Location is blocked. Click the location/padlock icon in the address bar, set Location to Allow, then try again. On Windows also check Settings > Privacy & security > Location. On a phone: Settings > Site settings > Location."
-          : err.code === 3 ? "Finding your location took too long. Move to open sky and try again, or search by trap code."
-          : "Your location is not available right now. Search by trap code instead.");
+          ? "Location access is blocked."
+          : err.code === 3 ? "Finding your location took too long."
+          : "Your location is not available right now.");
       }, { enableHighAccuracy: true, timeout: 15000, maximumAge: 30000 });
     }
   };
@@ -685,17 +909,35 @@ async function reportsPage(group = "line") {
 // ================= SETTINGS =================
 async function settingsPage() {
   shell("Settings", `
-    <div class="card" style="max-width:480px"><div class="card-body">
-      <p><b>Name:</b> ${esc(me.name)}</p>
-      <p><b>Email:</b> ${esc(me.email)}</p>
-      <p><b>Role:</b> ${esc(me.role)}</p>
-      <p><b>Exact trap locations:</b> ${isCoord() || me.can_view_exact_location ? "Yes" : "No"}</p>
-      <p><b>API address:</b> ${esc(API_URL)}</p>
-      <p><b>Overdue rules:</b> amber after ${dueDays()} days, red after ${overdueDays()} days (change them in config.js)</p>
-      <p><b>Waiting to upload:</b> <span id="qn">${Outbox.count()}</span> <button id="sync" class="btn btn-sm btn-outline-primary ms-2">Sync now</button></p>
-      <button id="install" class="btn btn-outline-primary mb-3 d-none"><i class="bi bi-phone"></i> Install app on this device</button><br>
-      <button id="out2" class="btn btn-outline-danger">Log out</button>
-    </div></div>`);
+    <div class="row g-4" style="max-width:720px">
+      <div class="col-md-6"><div class="card h-100"><div class="card-body">
+        <p class="text-uppercase small fw-bold mb-3" style="letter-spacing:.12em;color:var(--accent)">Appearance</p>
+        <p class="text-secondary small">Matches the Pest-Free public site. Your choice is saved on this device.</p>
+        <div class="theme-picks">
+          <button type="button" class="theme-pick" data-theme-set="dark"><i class="bi bi-moon-stars me-1"></i> Dark</button>
+          <button type="button" class="theme-pick" data-theme-set="light"><i class="bi bi-sun me-1"></i> Light</button>
+        </div>
+      </div></div></div>
+      <div class="col-md-6"><div class="card h-100"><div class="card-body">
+        <p class="text-uppercase small fw-bold mb-3" style="letter-spacing:.12em;color:var(--accent)">Account</p>
+        <p><b>Name:</b> ${esc(me.name)}</p>
+        <p><b>Email:</b> ${esc(me.email)}</p>
+        <p><b>Role:</b> ${esc(me.role)}</p>
+        <p><b>Exact trap locations:</b> ${isCoord() || me.can_view_exact_location ? "Yes" : "No"}</p>
+        <p><b>API address:</b> ${esc(API_URL)}</p>
+        <p><b>Overdue rules:</b> amber after ${dueDays()} days, red after ${overdueDays()} days (change them in config.js)</p>
+        <p class="mb-3"><b>Waiting to upload:</b> <span id="qn">${Outbox.count()}</span> <button id="sync" class="btn btn-sm btn-outline-primary ms-2">Sync now</button></p>
+        <button id="install" class="btn btn-outline-primary mb-3 d-none"><i class="bi bi-phone"></i> Install app on this device</button>
+        <button id="out2" class="btn btn-outline-danger">Log out</button>
+      </div></div></div>
+      <div class="col-md-6"><div class="card h-100"><div class="card-body">
+        <p class="text-uppercase small fw-bold mb-3" style="letter-spacing:.12em;color:var(--accent)">Alerts</p>
+        <p class="text-secondary small">Get trap alerts on your phone with the free ntfy app.</p>
+        <button id="ntfy-info" class="btn btn-primary me-2 mb-2"><i class="bi bi-bell"></i> Get alerts</button>
+        ${isCoord() ? '<button id="ntfy-test" class="btn btn-outline-primary mb-2">Send test alert</button>' : ""}
+      </div></div></div>
+    </div>`);
+  if (window.PFNTheme) PFNTheme.set(PFNTheme.get());
   document.getElementById("out2").onclick = logout;
   document.getElementById("sync").onclick = async () => {
     const r = await Outbox.flush();
@@ -706,6 +948,29 @@ async function settingsPage() {
   const inst = document.getElementById("install");
   if (window.deferredInstall) inst.classList.remove("d-none");
   inst.onclick = () => { window.deferredInstall.prompt(); };
+
+  // "Get alerts": show how to subscribe to the ntfy topic.
+  document.getElementById("ntfy-info").onclick = async () => {
+    try {
+      const i = await apiRequest("/notifications/info");
+      Box.fire({
+        icon: "info", title: "Get alerts on your phone", width: 480,
+        html: `<ol class="text-start small">
+          <li>Install the free <b>ntfy</b> app (Android or iPhone).</li>
+          <li>Tap <b>+</b> and enter this topic name:<br><code>${esc(i.topic)}</code></li>
+          <li>Or open it in a browser: <a href="${esc(i.url)}" target="_blank" rel="noopener">${esc(i.url)}</a></li>
+        </ol><p class="small text-secondary mb-0">Keep this topic name private - anyone who has it can read the alerts.</p>`,
+        confirmButtonText: "Done",
+      });
+    } catch (err) { fail(err); }
+  };
+
+  // "Send test alert" (coordinators only): the server sends one test notification.
+  const testBtn = document.getElementById("ntfy-test");
+  if (testBtn) testBtn.onclick = async () => {
+    try { await apiRequest("/notifications/test", "POST", {}); success("Test alert sent"); }
+    catch (err) { fail(err); }
+  };
 }
 
 

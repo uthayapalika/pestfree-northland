@@ -1,9 +1,10 @@
 <!DOCTYPE html>
-<html lang="en" data-bs-theme="dark">
+<html lang="en">
 <head>
   <meta charset="utf-8">
+  <script>!function(){var t=localStorage.getItem("pfn-theme")||"dark";document.documentElement.setAttribute("data-theme",t);document.documentElement.setAttribute("data-bs-theme",t);}();</script>
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Register - Pest-Free Northland Admin</title>
+  <title>Register - Pest-Free Admin</title>
   <meta name="theme-color" content="#08110F">
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
@@ -13,14 +14,29 @@
   <link rel="manifest" href="manifest.json">
   <link rel="icon" href="assets/icons/icon-192.png">
   <link rel="apple-touch-icon" href="assets/icons/icon-192.png">
+  <script src="assets/js/theme.js"></script>
 </head>
 <body data-page="register">
-  <section class="au"><form class="card p-4 w-100" style="max-width:440px" id="af" novalidate><div class="card-body">
-    <a class="brand mb-4" href="../index.html"><span class="bi-logo"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l5 6h-3l4 5h-4l3 4H7l3-4H6l4-5H7z"/><path d="M12 18v3"/></svg></span><span>Pest-Free Northland<small>Admin panel</small></span></a>
-    <h1 class="h2">Join the crew</h1><p class="text-secondary mb-4">Create a volunteer account to start using the tracker.</p>
-    <div id="ae" class="alert d-none" role="alert"></div>
-    <div class="mb-3"><label class="form-label small text-secondary" for="name">Full name</label><input class="form-control" id="name" name="name" type="text" autocomplete="name" required></div><div class="mb-3"><label class="form-label small text-secondary" for="email">Email</label><input class="form-control" id="email" name="email" type="email" autocomplete="username" required></div><div class="mb-3"><label class="form-label small text-secondary" for="password">Password</label><input class="form-control" id="password" name="password" type="password" autocomplete="new-password" required></div><div class="mb-3"><label class="form-label small text-secondary" for="confirm">Confirm password</label><input class="form-control" id="confirm" name="confirm" type="password" autocomplete="new-password" required></div><button class="btn btn-primary w-100 py-2 mt-2">Create account</button>
-    <p class="text-secondary small text-center mt-3 mb-0">Already registered? <a href="login.html">Sign in</a></p></div></form></section>
+  <script src="../assets/i18n.js"></script>
+  <section class="au">
+    <button type="button" class="icon-btn au-toggle" data-theme-toggle aria-label="Toggle light or dark mode" title="Light / dark">
+      <i class="bi bi-sun-fill theme-icon-light"></i><i class="bi bi-moon-stars-fill theme-icon-dark"></i>
+    </button>
+    <form class="card p-4 w-100" id="af" novalidate>
+      <div class="card-body">
+        <a class="brand mb-4" href="../index.html"><span class="bi-logo"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l5 6h-3l4 5h-4l3 4H7l3-4H6l4-5H7z"/><path d="M12 18v3"/></svg></span><span>Pest-Free<small>Admin panel</small></span></a>
+        <h1 class="h2">Join the crew</h1>
+        <p class="text-secondary mb-4">Create a volunteer account to start using the tracker.</p>
+        <div id="ae" class="alert d-none" role="alert"></div>
+        <div class="mb-3"><label class="form-label small text-secondary" for="name">Full name</label><input class="form-control" id="name" name="name" type="text" autocomplete="name" required></div>
+        <div class="mb-3"><label class="form-label small text-secondary" for="email">Email</label><input class="form-control" id="email" name="email" type="email" autocomplete="username" required></div>
+        <div class="mb-3"><label class="form-label small text-secondary" for="password">Password</label><input class="form-control" id="password" name="password" type="password" autocomplete="new-password" required></div>
+        <div class="mb-3"><label class="form-label small text-secondary" for="confirm">Confirm password</label><input class="form-control" id="confirm" name="confirm" type="password" autocomplete="new-password" required></div>
+        <button class="btn btn-primary w-100 py-2 mt-2">Create account</button>
+        <p class="text-secondary small text-center mt-3 mb-0">Already registered? <a href="login.html">Sign in</a></p>
+      </div>
+    </form>
+  </section>
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11.14.5/dist/sweetalert2.all.min.js"></script>
   <script src="assets/js/config.js"></script>

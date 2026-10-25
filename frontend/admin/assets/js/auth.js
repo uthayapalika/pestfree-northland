@@ -10,8 +10,13 @@
   function showMessage(text, type) {
     // Use a SweetAlert pop-up when it is loaded.
     if (window.Swal) {
-      Swal.fire({ icon: type === "success" ? "success" : "error", text, background: "#10201b", color: "#e8f0ec",
-                  timer: type === "success" ? 1500 : undefined, showConfirmButton: type !== "success" });
+      const s = getComputedStyle(document.documentElement);
+      Swal.fire({
+        icon: type === "success" ? "success" : "error", text,
+        background: s.getPropertyValue("--card-bg").trim() || "#10201b",
+        color: s.getPropertyValue("--text").trim() || "#e8f0ec",
+        timer: type === "success" ? 1500 : undefined, showConfirmButton: type !== "success",
+      });
       return;
     }
     const box = document.getElementById("ae");
