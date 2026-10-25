@@ -24,6 +24,8 @@
 .tile.list { min-height: 0; margin-bottom: .6rem; font-size: 1rem; text-align: left; }
 
 .chart-box { position: relative; height: 260px; }
+.trap-location-map { height: 260px; overflow: hidden; }
+.nearby-trap-map { height: 320px; overflow: hidden; border: 1px solid var(--border); }
 
 .map-legend {
   background: color-mix(in srgb, var(--surface) 92%, transparent);

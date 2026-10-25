@@ -32,7 +32,7 @@ def add_trap(
 ):
     trap = TrapService(db).create_trap(user, line_id, data)
     # Alert goes out AFTER the trap is saved and the reply is sent (no location in the message).
-    background_tasks.add_task(notify, "New trap added", f"Trap {data.code} ({data.trap_type}) was added", tags=["pushpin"])
+    background_tasks.add_task(notify, "New trap added", f"Trap {trap['code']} ({data.trap_type}) was added", tags=["pushpin"])
     return trap
 
 

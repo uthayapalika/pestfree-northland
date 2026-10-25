@@ -264,6 +264,11 @@ const confirmDelete = () => Box.fire({
 function openForm(title, fields, values = {}, save, choices = {}) {
   return new Promise((resolve) => {
     const lists = {}; // the dropdown options actually shown, per field
+    const hasLocationPicker = fields.includes("exact_lat") && fields.includes("exact_lng");
+    const hasLocation = values.exact_lat !== null && values.exact_lat !== undefined && values.exact_lat !== "" &&
+      values.exact_lng !== null && values.exact_lng !== undefined && values.exact_lng !== "" &&
+      Number.isFinite(Number(values.exact_lat)) && Number.isFinite(Number(values.exact_lng));
+    const autoLocate = hasLocationPicker && !hasLocation && title.toLowerCase().startsWith("add ");
     // Pick the input type from the field name / current value.
     const typeOf = (f, v) => (typeof v === "number" || /^(lat|lng)$|_id$|_lat$|_lng$/.test(f)) ? "number"
                            : /email/.test(f) ? "email" : /password/.test(f) ? "password" : /_at$/.test(f) ? "datetime-local" : /date/.test(f) ? "date" : "text";
@@ -271,6 +276,21 @@ function openForm(title, fields, values = {}, save, choices = {}) {
     // One input per field (everything is required except description/notes).
     const inputs = fields.map((f) => {
       const label = LABELS[f] || f.replace(/_/g, " ");
+
+      if (hasLocationPicker && f === "exact_lat") {
+        return `<div class="mb-3">
+          <label class="form-label small text-secondary">Trap location</label>
+          <div id="trap-location-map" class="trap-location-map rounded"></div>
+          <div id="trap-location-status" class="form-text">${hasLocation
+            ? `Pinned at ${esc(Number(values.exact_lat).toFixed(6))}, ${esc(Number(values.exact_lng).toFixed(6))}`
+            : autoLocate
+              ? "Finding your location... Allow location access when your browser asks."
+              : "Click the map to place a pin. A location is required."}</div>
+          <input type="hidden" name="exact_lat" value="${hasLocation ? esc(values.exact_lat) : ""}">
+          <input type="hidden" name="exact_lng" value="${hasLocation ? esc(values.exact_lng) : ""}">
+        </div>`;
+      }
+      if (hasLocationPicker && f === "exact_lng") return "";
 
       // Dropdown field: the user picks from a list instead of typing.
       if (choices[f]) {
@@ -309,11 +329,18 @@ function openForm(title, fields, values = {}, save, choices = {}) {
     const modal = new bootstrap.Modal(el, { focus: false });
     const form = el.querySelector("form");
     let saved = false;
+    let locationMap;
 
     // Save pressed: check the fields, read them, call save().
     form.addEventListener("submit", async (e) => {
       e.preventDefault();
       form.classList.add("was-validated");
+      if (hasLocationPicker && (!form.elements.exact_lat.value || !form.elements.exact_lng.value)) {
+        const status = form.querySelector("#trap-location-status");
+        status.textContent = "Please click the map to place a pin before saving.";
+        status.classList.add("text-danger");
+        return;
+      }
       if (!form.checkValidity()) return; // browser highlights the missing field
 
       const data = {};
@@ -323,7 +350,8 @@ function openForm(title, fields, values = {}, save, choices = {}) {
           data[f] = lists[f].find((o) => String(o.value) === input.value).value;
           return;
         }
-        data[f] = input.type === "number" ? (input.value === "" ? null : Number(input.value)) : input.value.trim();
+        data[f] = input.type === "number" || f === "exact_lat" || f === "exact_lng"
+          ? (input.value === "" ? null : Number(input.value)) : input.value.trim();
       });
 
       // Show a spinner and block double clicks while saving.
@@ -342,8 +370,68 @@ function openForm(title, fields, values = {}, save, choices = {}) {
     });
 
     // When the modal has closed: clean up and report what happened.
-    el.addEventListener("hidden.bs.modal", () => { el.remove(); resolve(saved); });
-    el.addEventListener("shown.bs.modal", () => el.querySelector("input, select").focus());
+    el.addEventListener("hidden.bs.modal", () => {
+      if (locationMap) locationMap.remove();
+      el.remove();
+      resolve(saved);
+    });
+    el.addEventListener("shown.bs.modal", () => {
+      el.querySelector('input:not([type="hidden"]), select')?.focus();
+      if (!hasLocationPicker) return;
+      if (!window.L) {
+        fail(new Error("The map could not load. Check your internet connection and try again."));
+        return;
+      }
+      let locationSelected = hasLocation;
+      const lat = hasLocation ? Number(values.exact_lat) : -35.725;
+      const lng = hasLocation ? Number(values.exact_lng) : 174.32;
+      locationMap = L.map("trap-location-map").setView([lat, lng], hasLocation ? 15 : 10);
+      L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}", {
+        maxZoom: 19, attribution: "Tiles &copy; Esri",
+      }).addTo(locationMap);
+      let marker;
+      const setLocation = (point) => {
+        locationSelected = true;
+        const exactLat = Number(point.lat.toFixed(6));
+        const exactLng = Number(point.lng.toFixed(6));
+        form.elements.exact_lat.value = exactLat;
+        form.elements.exact_lng.value = exactLng;
+        const status = form.querySelector("#trap-location-status");
+        status.textContent = `Pinned at ${exactLat.toFixed(6)}, ${exactLng.toFixed(6)}`;
+        status.classList.remove("text-danger");
+        if (!marker) {
+          marker = L.marker(point, { draggable: true }).addTo(locationMap);
+          marker.on("dragend", () => setLocation(marker.getLatLng()));
+        } else {
+          marker.setLatLng(point);
+        }
+      };
+      if (hasLocation) {
+        marker = L.marker([lat, lng], { draggable: true }).addTo(locationMap);
+        marker.on("dragend", () => setLocation(marker.getLatLng()));
+      }
+      locationMap.on("click", (event) => setLocation(event.latlng));
+      locationMap.invalidateSize();
+      if (autoLocate) {
+        const status = form.querySelector("#trap-location-status");
+        if (!navigator.geolocation) {
+          status.textContent = "Location isn't available in this browser. Click the map to place a pin.";
+          return;
+        }
+        navigator.geolocation.getCurrentPosition((position) => {
+          if (!el.isConnected || locationSelected) return;
+          const point = { lat: position.coords.latitude, lng: position.coords.longitude };
+          locationMap.setView(point, 17);
+          setLocation(point);
+          status.textContent = "Your current location is pinned. Drag the pin if needed.";
+        }, (error) => {
+          if (!el.isConnected || locationSelected) return;
+          status.textContent = error.code === error.PERMISSION_DENIED
+            ? "Location access was denied. Allow access in your browser settings or click the map to place a pin."
+            : "Couldn't find your location. Check your device location settings or click the map to place a pin.";
+        }, { enableHighAccuracy: true, maximumAge: 60000, timeout: 12000 });
+      }
+    });
     modal.show();
   });
 }
@@ -461,7 +549,7 @@ async function loadChoices(fields) {
 const lineNames = async () => Object.fromEntries(list(await api.getLines()).map((l) => [l.id, l.name]));
 
 const CRUD = {
-  traps:   { title: "Traps",      one: "trap",      fields: ["code"], editFields: ["code", "trap_type", "general_area", "is_sensitive", "exact_lat", "exact_lng"], addFields: ["trap_line_id", "code", "trap_type", "general_area", "is_sensitive", "exact_lat", "exact_lng"],  load: api.getTraps,   add: api.addTrap,   update: api.updateTrap,   remove: api.deleteTrap,
+  traps:   { title: "Traps",      one: "trap",      fields: ["code"], editFields: ["trap_type", "general_area", "is_sensitive", "exact_lat", "exact_lng"], addFields: ["trap_line_id", "trap_type", "general_area", "is_sensitive", "exact_lat", "exact_lng"],  load: api.getTraps,   add: api.addTrap,   update: api.updateTrap,   remove: api.deleteTrap,
              // extra read-only columns: line name + overdue status
              decorate: async (rows) => { const ln = await lineNames(); rows.forEach((r) => { r.trap_line = ln[r.trap_line_id] || ""; r.check_state = trapState(r).label; }); } },
   lines:   { title: "Trap lines", one: "trap line", fields: ["name", "general_area"],          load: api.getLines,   add: api.addLine,   update: api.updateLine,   remove: api.deleteLine },
@@ -604,10 +692,14 @@ async function checkPage() {
   try { [traps, lines] = (await Promise.all([api.getTraps(), api.getLines()])).map(list); } catch (err) { return showError(err); }
   const lineName = Object.fromEntries(lines.map((l) => [l.id, l.name]));
   const STATUS = [["empty", "Empty", "check-circle"], ["caught", "Caught", "bug-fill"], ["bait_needed", "Bait needed", "basket"], ["sprung", "Sprung", "exclamation-triangle"]];
-  const S = { trap: null, status: "", species: "", notes: "", q: "", near: false, saving: false };
+  const S = {
+    trap: null, status: "", species: "", notes: "", q: "", near: false, saving: false,
+    nearMap: false, nearMessage: "", userPoint: null,
+  };
   const preset = new URLSearchParams(location.search).get("trap"); // from a QR code
   if (preset) S.trap = traps.find((t) => String(t.id) === preset) || null;
   const box = document.getElementById("body");
+  let nearbyMap;
 
   function listHtml() {
     const q = S.q.toLowerCase();
@@ -619,7 +711,60 @@ async function checkPage() {
       || "<p class='text-secondary'>No trap matches.</p>";
   }
 
+  function drawNearbyMap() {
+    if (!S.nearMap) return;
+    const mapElement = document.getElementById("nearby-trap-map");
+    if (!mapElement) return;
+    if (!window.L) {
+      mapElement.innerHTML = "<p class='p-3 text-secondary'>The map could not load. Search by trap code or line instead.</p>";
+      return;
+    }
+    const points = traps.filter((t) => t.exact_lat != null && t.exact_lng != null);
+    const center = S.userPoint || (points.length
+      ? [points[0].exact_lat, points[0].exact_lng]
+      : [-35.725, 174.32]);
+    nearbyMap = L.map(mapElement).setView(center, S.userPoint ? 14 : 10);
+    L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}", {
+      maxZoom: 19, attribution: "Tiles &copy; Esri",
+    }).addTo(nearbyMap);
+    if (S.userPoint) {
+      L.marker(S.userPoint, { title: "Your selected location" }).addTo(nearbyMap)
+        .bindPopup("<b>Your location</b>");
+    }
+    points.forEach((t) => {
+      const distance = t._d == null ? "" : `<br>${esc(fmtDist(t._d))} away`;
+      L.marker([t.exact_lat, t.exact_lng]).addTo(nearbyMap).bindPopup(
+        `<b>${esc(t.code)}</b><br>${esc(lineName[t.trap_line_id] || "")} - ${esc(t.trap_type)}<br>${esc(t.general_area || "")}${distance}
+         <br><button class="btn btn-sm btn-primary mt-2" data-act="pick" data-id="${esc(t.id)}">View trap details</button>`);
+    });
+    nearbyMap.on("click", (event) => {
+      S.userPoint = [event.latlng.lat, event.latlng.lng];
+      traps.forEach((t) => {
+        t._d = t.exact_lat == null || t.exact_lng == null
+          ? null : distanceM(S.userPoint[0], S.userPoint[1], t.exact_lat, t.exact_lng);
+      });
+      S.near = true;
+      S.nearMessage = "Location selected. Nearby traps are shown first; tap a marker or trap to view its details.";
+      render();
+    });
+    if (S.userPoint) {
+      const nearest = points.filter((t) => t._d != null)
+        .sort((a, b) => a._d - b._d)
+        .slice(0, 5)
+        .map((t) => [t.exact_lat, t.exact_lng]);
+      if (nearest.length) {
+        nearbyMap.fitBounds([S.userPoint, ...nearest], { padding: [24, 24], maxZoom: 15 });
+      }
+    } else if (points.length > 1) {
+      nearbyMap.fitBounds(points.map((t) => [t.exact_lat, t.exact_lng]), { padding: [24, 24] });
+    }
+  }
+
   function render() {
+    if (nearbyMap) {
+      nearbyMap.remove();
+      nearbyMap = null;
+    }
     const pending = Outbox.count();
     let html = pending ? `<div class="alert alert-warning d-flex justify-content-between align-items-center">
       <span>${pending} check${pending > 1 ? "s" : ""} waiting to upload</span><button class="btn btn-sm btn-warning" data-act="sync">Sync now</button></div>` : "";
@@ -627,13 +772,15 @@ async function checkPage() {
       html += `<div class="d-grid gap-2 mb-3">
           <button class="btn btn-primary btn-lg py-3" data-act="near"><i class="bi bi-crosshair"></i> Find nearest traps</button>
           <input id="q" class="form-control form-control-lg" placeholder="Search by trap code or line" value="${esc(S.q)}"></div>
+        ${S.nearMessage ? `<p class="small text-secondary">${esc(S.nearMessage)}</p>` : ""}
+        ${S.nearMap ? `<div id="nearby-trap-map" class="nearby-trap-map rounded mb-3"></div>` : ""}
         <div id="list">${listHtml()}</div>`;
     } else {
       const t = S.trap, ready = S.status && (S.status !== "caught" || S.species);
       html += `<button class="btn btn-sm btn-outline-secondary mb-3" data-act="back"><i class="bi bi-arrow-left"></i> Choose another trap</button>
         <div class="card mb-3"><div class="card-body">
           <div class="d-flex justify-content-between align-items-start"><div><div class="h3 mb-0">${esc(t.code)}</div>
-            <div class="text-secondary small">${esc(lineName[t.trap_line_id] || "")} - ${esc(t.trap_type)} - ${esc(t.general_area)}</div></div>${stateBadge(t)}</div>
+            <div class="text-secondary small">${esc(lineName[t.trap_line_id] || "")} - ${esc(t.trap_type)} - ${esc(t.general_area)}${t._d != null ? " - " + esc(fmtDist(t._d)) + " away" : ""}</div></div>${stateBadge(t)}</div>
           <div class="small mt-2">Last check: ${esc(ago(t.last_checked_at))}${t.last_status ? " (" + esc(t.last_status.replace("_", " ")) + ")" : ""}</div>
           <div class="small text-secondary">Suggested bait: ${esc(t.recommended_bait)}</div></div></div>
         <h2 class="h6">What did you find?</h2>
@@ -644,6 +791,7 @@ async function checkPage() {
         <button class="btn btn-primary btn-lg w-100 py-3" data-act="save" ${ready && !S.saving ? "" : "disabled"}>Save check</button>`;
     }
     box.innerHTML = html;
+    drawNearbyMap();
   }
 
   async function save() {
@@ -681,18 +829,33 @@ async function checkPage() {
     else if (act === "save") save();
     else if (act === "sync") Outbox.flush().then((r) => { if (r.sent) success(r.sent + " uploaded"); r.failed.forEach((f) => fail(new Error(f.label + ": " + f.error))); render(); });
     else if (act === "near") {
-      if (!navigator.geolocation) return fail(new Error("This device has no GPS."));
+      const showMapFallback = (message) => {
+        S.near = false;
+        S.nearMap = true;
+        S.userPoint = null;
+        S.nearMessage = message + " Click the map to choose your location and see nearby traps.";
+        traps.forEach((t) => { t._d = null; });
+        render();
+      };
+      if (!navigator.geolocation) return showMapFallback("This device cannot provide GPS location.");
       b.disabled = true; b.textContent = "Finding you...";
-      const stop = (msg) => { S.near = false; traps.forEach((t) => { t._d = null; }); fail(new Error(msg)); render(); };
+      const stop = (msg) => showMapFallback(msg);
       navigator.geolocation.getCurrentPosition((p) => {
+        S.userPoint = [p.coords.latitude, p.coords.longitude];
         traps.forEach((t) => { t._d = t.exact_lat == null || t.exact_lng == null ? null : distanceM(p.coords.latitude, p.coords.longitude, t.exact_lat, t.exact_lng); });
-        if (!traps.some((t) => t._d != null)) return stop("Your account cannot see exact trap locations. Search by code or scan the trap's QR code instead.");
-        S.near = true; render();
+        if (!traps.some((t) => t._d != null)) {
+          S.nearMap = false;
+          return stop("Your account cannot see exact trap locations. Search by code or scan the trap's QR code instead.");
+        }
+        S.near = true;
+        S.nearMap = true;
+        S.nearMessage = "Nearby traps are shown on the map and sorted by distance. Tap a marker or trap to view its details.";
+        render();
       }, (err) => {
         stop(err.code === 1
-          ? "Location is blocked. Click the location/padlock icon in the address bar, set Location to Allow, then try again. On Windows also check Settings > Privacy & security > Location. On a phone: Settings > Site settings > Location."
-          : err.code === 3 ? "Finding your location took too long. Move to open sky and try again, or search by trap code."
-          : "Your location is not available right now. Search by trap code instead.");
+          ? "Location access is blocked."
+          : err.code === 3 ? "Finding your location took too long."
+          : "Your location is not available right now.");
       }, { enableHighAccuracy: true, timeout: 15000, maximumAge: 30000 });
     }
   };

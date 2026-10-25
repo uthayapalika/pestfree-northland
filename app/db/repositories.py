@@ -100,7 +100,7 @@ class TrapRepository:
     ) -> Trap:
         row = TrapModel(
             trap_line_id=trap_line_id,
-            code=code,
+            code=code or "",
             trap_type=trap_type,
             general_area=general_area,
             exact_lat=exact_lat,
@@ -108,6 +108,15 @@ class TrapRepository:
             is_sensitive=is_sensitive,
         )
         self.db.add(row)
+        self.db.flush()
+        if code is None:
+            base_code = f"TRAP-{row.id:04d}"
+            code = base_code
+            suffix = 2
+            while self.code_exists(trap_line_id, code):
+                code = f"{base_code}-{suffix}"
+                suffix += 1
+            row.code = code
         self.db.commit()
         self.db.refresh(row)
         return self._to_domain(row)

@@ -66,14 +66,15 @@ def update_trap(
     if data.is_sensitive and (data.exact_lat is None or data.exact_lng is None):
         raise ServiceError("Sensitive traps need exact_lat and exact_lng.", 400)
     Trap = _model("code", "trap_line_id")
-    duplicate = db.query(Trap).filter(
-        Trap.trap_line_id == trap.trap_line_id,
-        Trap.code == data.code,
-        Trap.id != trap_id,
-    ).first()
-    if duplicate:
-        raise ServiceError("This trap code already exists on that trap line.", 409)
-    _set(trap, ("code",), data.code)
+    if data.code is not None:
+        duplicate = db.query(Trap).filter(
+            Trap.trap_line_id == trap.trap_line_id,
+            Trap.code == data.code,
+            Trap.id != trap_id,
+        ).first()
+        if duplicate:
+            raise ServiceError("This trap code already exists on that trap line.", 409)
+        _set(trap, ("code",), data.code)
     _set(trap, ("trap_type", "type"), data.trap_type)
     _set(trap, ("general_area",), data.general_area)
     _set(trap, ("exact_lat", "lat", "latitude"), data.exact_lat)

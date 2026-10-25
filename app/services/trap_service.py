@@ -42,7 +42,7 @@ class TrapService:
     def create_trap(self, user: UserModel, line_id: int, data: TrapIn) -> dict:
         if not self.lines.get(line_id):
             raise ServiceError("Trap line not found.", 404)
-        if self.traps.code_exists(line_id, data.code):
+        if data.code is not None and self.traps.code_exists(line_id, data.code):
             raise ServiceError("This trap code already exists on that trap line.", 409)
         if data.is_sensitive and (data.exact_lat is None or data.exact_lng is None):
             raise ServiceError("Sensitive traps need exact_lat and exact_lng.", 400)
@@ -117,4 +117,3 @@ class TrapService:
         self.db.commit()
         self.db.refresh(line)
         return line
-
