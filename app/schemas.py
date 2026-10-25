@@ -54,7 +54,7 @@ class TrapLineOut(BaseModel):
 
 
 class TrapIn(BaseModel):
-    code: str = Field(min_length=1, max_length=30)
+    code: Optional[str] = Field(default=None, min_length=1, max_length=30)
     trap_type: TrapType
     general_area: str = Field(min_length=2, max_length=120)
     exact_lat: Optional[float] = Field(default=None, ge=-90, le=90)
