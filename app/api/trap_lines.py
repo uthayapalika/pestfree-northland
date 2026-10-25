@@ -1,7 +1,8 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, BackgroundTasks, Depends
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user, require_coordinator
+from app.api.ntfy import notify
 from app.db.database import get_db
 from app.schemas import TrapIn, TrapLineIn, TrapLineOut, TrapOut
 from app.services.trap_service import TrapService
@@ -25,10 +26,14 @@ def list_trap_lines(db: Session = Depends(get_db), _=Depends(get_current_user)):
 def add_trap(
     line_id: int,
     data: TrapIn,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     user=Depends(require_coordinator),
 ):
-    return TrapService(db).create_trap(user, line_id, data)
+    trap = TrapService(db).create_trap(user, line_id, data)
+    # Alert goes out AFTER the trap is saved and the reply is sent (no location in the message).
+    background_tasks.add_task(notify, "New trap added", f"Trap {data.code} ({data.trap_type}) was added", tags=["pushpin"])
+    return trap
 
 
 @router.get("/{line_id}/traps", response_model=list[TrapOut])

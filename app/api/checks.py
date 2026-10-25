@@ -1,10 +1,11 @@
 from datetime import timezone
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, BackgroundTasks, Depends
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user, require_coordinator
+from app.api.ntfy import notify
 from app.db.database import get_db
 from app.db.models import CatchModel, TrapCheckModel, TrapModel
 from app.errors import ServiceError
@@ -19,10 +20,14 @@ catches_router = APIRouter(prefix="/catches", tags=["Catches"])
 def record_catch(
     check_id: int,
     data: CatchIn,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     _=Depends(get_current_user),
 ):
-    return TrapService(db).record_catch(check_id, data)
+    catch = TrapService(db).record_catch(check_id, data)
+    species = getattr(data.species, "value", data.species)
+    background_tasks.add_task(notify, "New catch", f"{species} caught", tags=["bug"])
+    return catch
 
 
 @catches_router.get("", response_model=list[CatchOut])
@@ -33,6 +38,7 @@ def list_catches(db: Session = Depends(get_db), _=Depends(get_current_user)):
 @catches_router.post("", response_model=CatchOut, status_code=201)
 def create_catch(
     data: CatchCreateIn,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     user=Depends(get_current_user),
 ):
@@ -63,6 +69,8 @@ def create_catch(
     db.add(catch)
     db.commit()
     db.refresh(catch)
+    # Alert goes out AFTER the catch is saved (no location in the message).
+    background_tasks.add_task(notify, "New catch", f"{catch.species} caught in trap {trap.code}", tags=["bug"])
     return catch
 
 

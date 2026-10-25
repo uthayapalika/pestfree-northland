@@ -767,6 +767,12 @@ async function settingsPage() {
         <button id="install" class="btn btn-outline-primary mb-3 d-none"><i class="bi bi-phone"></i> Install app on this device</button>
         <button id="out2" class="btn btn-outline-danger">Log out</button>
       </div></div></div>
+      <div class="col-md-6"><div class="card h-100"><div class="card-body">
+        <p class="text-uppercase small fw-bold mb-3" style="letter-spacing:.12em;color:var(--accent)">Alerts</p>
+        <p class="text-secondary small">Get trap alerts on your phone with the free ntfy app.</p>
+        <button id="ntfy-info" class="btn btn-primary me-2 mb-2"><i class="bi bi-bell"></i> Get alerts</button>
+        ${isCoord() ? '<button id="ntfy-test" class="btn btn-outline-primary mb-2">Send test alert</button>' : ""}
+      </div></div></div>
     </div>`);
   if (window.PFNTheme) PFNTheme.set(PFNTheme.get());
   document.getElementById("out2").onclick = logout;
@@ -779,6 +785,29 @@ async function settingsPage() {
   const inst = document.getElementById("install");
   if (window.deferredInstall) inst.classList.remove("d-none");
   inst.onclick = () => { window.deferredInstall.prompt(); };
+
+  // "Get alerts": show how to subscribe to the ntfy topic.
+  document.getElementById("ntfy-info").onclick = async () => {
+    try {
+      const i = await apiRequest("/notifications/info");
+      Box.fire({
+        icon: "info", title: "Get alerts on your phone", width: 480,
+        html: `<ol class="text-start small">
+          <li>Install the free <b>ntfy</b> app (Android or iPhone).</li>
+          <li>Tap <b>+</b> and enter this topic name:<br><code>${esc(i.topic)}</code></li>
+          <li>Or open it in a browser: <a href="${esc(i.url)}" target="_blank" rel="noopener">${esc(i.url)}</a></li>
+        </ol><p class="small text-secondary mb-0">Keep this topic name private - anyone who has it can read the alerts.</p>`,
+        confirmButtonText: "Done",
+      });
+    } catch (err) { fail(err); }
+  };
+
+  // "Send test alert" (coordinators only): the server sends one test notification.
+  const testBtn = document.getElementById("ntfy-test");
+  if (testBtn) testBtn.onclick = async () => {
+    try { await apiRequest("/notifications/test", "POST", {}); success("Test alert sent"); }
+    catch (err) { fail(err); }
+  };
 }
 
 
