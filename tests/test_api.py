@@ -57,6 +57,14 @@ def test_notification_test_reports_ntfy_rate_limit(client, coord, monkeypatch):
     assert "30 seconds" in response.json()["detail"]
 
 
+def test_notification_test_requires_topic_when_not_configured(client, coord, monkeypatch):
+    monkeypatch.setattr(ntfy, "NTFY_TOPIC", "")
+    response = client.post("/notifications/test", json={}, headers=coord)
+
+    assert response.status_code == 503
+    assert "NTFY_TOPIC is not set" in response.json()["detail"]
+
+
 def test_volunteer_cannot_create_trap_line(client, vol):
     r = client.post(
         "/trap-lines", json={"name": "Line", "general_area": "Area"}, headers=vol
