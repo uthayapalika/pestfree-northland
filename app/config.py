@@ -3,9 +3,12 @@ from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 DATABASE_URL = os.getenv("DATABASE_URL", f"sqlite:///{BASE_DIR / 'pestfree.db'}")
-# Render gives "postgres://..." but SQLAlchemy needs "postgresql://..."
+# Render gives "postgres://..." (or "postgresql://..."). Newer SQLAlchemy would pick the "psycopg"
+# (version 3) driver for that, but we installed psycopg2-binary, so we name the driver explicitly.
 if DATABASE_URL.startswith("postgres://"):
-    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
+    DATABASE_URL = "postgresql://" + DATABASE_URL[len("postgres://"):]
+if DATABASE_URL.startswith("postgresql://"):
+    DATABASE_URL = "postgresql+psycopg2://" + DATABASE_URL[len("postgresql://"):]
 
 # On Render the SECRET_KEY must be set (Environment tab). Never run online with the dev key,
 # because anyone who knows it could create fake login tokens.
