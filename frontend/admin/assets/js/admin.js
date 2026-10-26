@@ -23,6 +23,45 @@ const list = (r) => (Array.isArray(r) ? r : (r && r.data) || []);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g,
   (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
+function exportPDF(title, sections) {
+  const printWindow = window.open("", "_blank");
+  if (!printWindow) {
+    fail(new Error("The PDF window was blocked. Allow pop-ups for this site and try again."));
+    return;
+  }
+  const content = sections.map(({ title: heading, columns, rows }) => `
+    <section>
+      ${heading ? `<h2>${esc(heading)}</h2>` : ""}
+      <table>
+        <thead><tr>${columns.map((column) => `<th>${esc(column.label)}</th>`).join("")}</tr></thead>
+        <tbody>${rows.map((row) => `<tr>${columns.map((column) => `<td>${esc(row[column.key])}</td>`).join("")}</tr>`).join("")}</tbody>
+      </table>
+    </section>`).join("");
+  printWindow.document.open();
+  printWindow.document.write(`<!doctype html>
+    <html lang="en"><head><meta charset="utf-8"><title>${esc(title)}</title>
+    <style>
+      @page { size: landscape; margin: 16mm; }
+      body { color: #17211b; font: 12px Arial, sans-serif; }
+      h1 { margin: 0 0 4px; font-size: 22px; }
+      h2 { margin: 20px 0 8px; font-size: 16px; }
+      p { color: #52635a; margin: 0 0 18px; }
+      table { width: 100%; border-collapse: collapse; margin-bottom: 18px; }
+      th, td { border: 1px solid #cbd5ce; padding: 7px; text-align: left; }
+      th { background: #edf3ee; }
+      tr { break-inside: avoid; }
+      section { break-inside: auto; }
+      @media screen { body { max-width: 1100px; margin: 32px auto; } }
+    </style></head><body>
+    <h1>${esc(title)}</h1><p>Generated ${esc(new Date().toLocaleString("en-NZ", { dateStyle: "medium", timeStyle: "short" }))}. Choose “Save as PDF” in the print dialog.</p>
+    ${content}</body></html>`);
+  printWindow.document.close();
+  printWindow.setTimeout(() => {
+    printWindow.focus();
+    printWindow.print();
+  }, 500);
+}
+
 // Show an error message at the top of the page.
 function showError(err) {
   const box = document.getElementById("err");
@@ -562,8 +601,9 @@ async function tablePage() {
   const cfg = CRUD[PAGE];
   const can = (action) => isCoord() || (cfg.volunteerCan || []).includes(action);
   const addButton = cfg.add && can("add") ? `<button id="add" class="btn btn-primary mb-3"><i class="bi bi-plus-lg"></i> Add ${cfg.one}</button>` : "";
-  const csvButton = `<button id="csv" class="btn btn-outline-secondary mb-3 ${addButton ? "ms-2" : ""}"><i class="bi bi-download"></i> Export CSV</button>`;
-  shell(cfg.title, addButton + csvButton + "<div id='body'>Loading...</div>");
+  const exportButtons = `<button id="csv" class="btn btn-outline-secondary mb-3 ${addButton ? "ms-2" : ""}"><i class="bi bi-download"></i> Export CSV</button>
+    <button id="pdf" class="btn btn-outline-secondary mb-3 ms-2"><i class="bi bi-file-earmark-pdf"></i> Export PDF</button>`;
+  shell(cfg.title, addButton + exportButtons + "<div id='body'>Loading...</div>");
 
   try {
     const rows = list(await cfg.load());
@@ -603,12 +643,19 @@ async function tablePage() {
     if (window.jQuery && jQuery.fn.DataTable && rows.length) jQuery("#tbl").DataTable();
 
     // Export every row to a CSV file.
+    const exportRows = PAGE === "catches"
+      ? rows.map((r) => ({ ...r, recorded_at: formatRecordedAt(r.recorded_at) }))
+      : rows;
     document.getElementById("csv").onclick = () => {
       if (!rows.length) return fail(new Error("There is nothing to export yet."));
-      const exportRows = PAGE === "catches"
-        ? rows.map((r) => ({ ...r, recorded_at: formatRecordedAt(r.recorded_at) }))
-        : rows;
       downloadCSV(PAGE + "-" + new Date().toISOString().slice(0, 10) + ".csv", exportRows, columns);
+    };
+    document.getElementById("pdf").onclick = () => {
+      if (!rows.length) return fail(new Error("There is nothing to export yet."));
+      exportPDF(cfg.title, [{
+        columns: columns.map((key) => ({ key, label: pretty(key) })),
+        rows: exportRows,
+      }]);
     };
 
     // QR button -> show this trap's QR code.
@@ -897,7 +944,9 @@ async function reportsPage(group = "line") {
         <label class="small text-secondary" for="grp">Group catches by</label>
         <select id="grp" class="form-select form-select-sm w-auto"><option value="line">Trap line</option><option value="month">Month</option></select>
         <button id="csvRep" class="btn btn-sm btn-outline-secondary"><i class="bi bi-download"></i> Export report CSV</button>
+        <button id="pdfRep" class="btn btn-sm btn-outline-secondary"><i class="bi bi-file-earmark-pdf"></i> Export report PDF</button>
         <button id="csvTraps" class="btn btn-sm btn-outline-secondary"><i class="bi bi-download"></i> Export all traps CSV</button>
+        <button id="pdfTraps" class="btn btn-sm btn-outline-secondary"><i class="bi bi-file-earmark-pdf"></i> Export all traps PDF</button>
       </div>
       <div class="row g-4">
         <div class="col-lg-4"><h2 class="h5">Catches by ${esc((rep && rep.group) || group)}${rep ? " (total " + esc(rep.total) + ")" : ""}</h2>${countTable(rows, "Group")}</div>
@@ -910,10 +959,52 @@ async function reportsPage(group = "line") {
     document.getElementById("csvRep").onclick = () => repRows.length
       ? downloadCSV("catches-by-" + group + ".csv", repRows.map((r) => ({ [group]: r.label, catches: r.catches })))
       : fail(new Error("There is nothing to export yet."));
-    document.getElementById("csvTraps").onclick = () => traps.length
-      ? downloadCSV("traps-" + new Date().toISOString().slice(0, 10) + ".csv", traps.map((t) => ({
+    const reportSections = [
+      {
+        title: "Catches by " + group,
+        columns: [{ key: group, label: group === "line" ? "Trap line" : "Month" }, { key: "catches", label: "Catches" }],
+        rows: repRows.length
+          ? repRows.map((r) => ({ [group]: r.label, catches: r.catches }))
+          : [{ [group]: "No data", catches: 0 }],
+      },
+      {
+        title: "Traps by last status",
+        columns: [{ key: "status", label: "Status" }, { key: "total", label: "Total" }],
+        rows: Object.entries(status).map(([label, total]) => ({ status: label, total })),
+      },
+      {
+        title: "Traps by check status",
+        columns: [{ key: "status", label: "Status" }, { key: "total", label: "Total" }],
+        rows: Object.entries(state).map(([label, total]) => ({ status: label, total })),
+      },
+    ];
+    document.getElementById("pdfRep").onclick = () => exportPDF("Catch and trap report", reportSections);
+    const trapExportRows = traps.map((t) => ({
           code: t.code, trap_line: lineName[t.trap_line_id] || "", type: t.trap_type, area: t.general_area,
-          last_status: t.last_status || "", last_checked_at: t.last_checked_at || "", days_since_check: daysSince(t.last_checked_at) ?? "", check_state: trapState(t).label })))
+          last_status: t.last_status || "", last_checked_at: t.last_checked_at || "", days_since_check: daysSince(t.last_checked_at) ?? "", check_state: trapState(t).label }));
+    const trapExportColumns = [
+      { key: "code", label: "Trap" }, { key: "trap_line", label: "Trap line" },
+      { key: "type", label: "Type" }, { key: "area", label: "General area" },
+      { key: "last_status", label: "Last status" }, { key: "last_checked_at", label: "Last checked" },
+      { key: "days_since_check", label: "Days since check" }, { key: "check_state", label: "Check status" },
+    ];
+    document.getElementById("csvTraps").onclick = () => traps.length
+      ? downloadCSV("traps-" + new Date().toISOString().slice(0, 10) + ".csv", trapExportRows, trapExportColumns.map((column) => column.key))
+      : fail(new Error("There are no traps to export."));
+    document.getElementById("pdfTraps").onclick = () => traps.length
+      ? exportPDF("All traps", [{
+          columns: trapExportColumns,
+          rows: trapExportRows.map((row) => {
+            const date = parseDate(row.last_checked_at);
+            return {
+              ...row,
+              last_checked_at: date ? date.toLocaleString("en-NZ", {
+                day: "numeric", month: "short", year: "numeric",
+                hour: "numeric", minute: "2-digit", hour12: true,
+              }) : row.last_checked_at,
+            };
+          }),
+        }])
       : fail(new Error("There are no traps to export."));
   } catch (err) { showError(err); }
 }
