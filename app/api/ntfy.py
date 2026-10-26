@@ -1,6 +1,7 @@
 """ntfy.sh push notifications (see app/main.py: app.include_router(ntfy.router))."""
 import json
 import os
+from urllib.error import HTTPError, URLError
 import urllib.request
 
 from fastapi import APIRouter, Depends
@@ -65,6 +66,29 @@ def test(data: TestIn, _=Depends(require_coordinator)):
     """Send a test alert (coordinators only)."""
     try:
         send_ntfy(data.title, data.message, tags=["white_check_mark"])
+    except HTTPError as err:
+        if err.code == 429:
+            retry_after = err.headers.get("Retry-After") if err.headers else None
+            wait_message = (
+                f" Try again in {retry_after} seconds."
+                if retry_after and retry_after.isdigit()
+                else " Wait a little while before trying again."
+            )
+            raise ServiceError(
+                "The ntfy service is temporarily rate-limiting notifications."
+                + wait_message
+                + " This limit is imposed by the notification service.",
+                429,
+            ) from err
+        raise ServiceError(
+            f"The ntfy service returned HTTP {err.code}. Please try again later.",
+            502,
+        ) from err
+    except (URLError, TimeoutError) as err:
+        raise ServiceError(
+            "Could not connect to the ntfy service. Please try again later.",
+            502,
+        ) from err
     except Exception as err:
-        raise ServiceError(f"Could not reach ntfy: {err}", 502)
+        raise ServiceError("The test notification could not be sent.", 502) from err
     return {"ok": True}

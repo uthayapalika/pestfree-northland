@@ -1,3 +1,6 @@
+from urllib.error import HTTPError
+
+from app.api import ntfy
 from tests.conftest import make_user
 
 
@@ -34,6 +37,24 @@ def test_invalid_input_gives_422(client):
 
 def test_protected_route_needs_token(client):
     assert client.get("/trap-lines").status_code == 401
+
+
+def test_notification_test_reports_ntfy_rate_limit(client, coord, monkeypatch):
+    def rate_limited(*args, **kwargs):
+        raise HTTPError(
+            "https://ntfy.sh",
+            429,
+            "Too Many Requests",
+            {"Retry-After": "30"},
+            None,
+        )
+
+    monkeypatch.setattr(ntfy, "send_ntfy", rate_limited)
+    response = client.post("/notifications/test", json={}, headers=coord)
+
+    assert response.status_code == 429
+    assert "rate-limiting" in response.json()["detail"]
+    assert "30 seconds" in response.json()["detail"]
 
 
 def test_volunteer_cannot_create_trap_line(client, vol):
