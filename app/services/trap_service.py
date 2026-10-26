@@ -24,7 +24,7 @@ class TrapService:
     def create_line(self, user: UserModel, data: TrapLineIn):
         return self.lines.add(data.name, data.general_area, user.id)
 
-    def _view(self, trap: Trap, user: UserModel) -> dict:
+    def _view(self, trap: Trap, user: UserModel, general_area: str) -> dict:
         last = self.checks.last_for_trap(trap.id)
         return {
             "id": trap.id,
@@ -32,7 +32,7 @@ class TrapService:
             "code": trap.code,
             "trap_type": trap.trap_type,
             "recommended_bait": trap.recommended_bait(),
-            "general_area": trap.general_area,
+            "general_area": general_area,
             "is_sensitive": trap.is_sensitive,
             **trap.visible_location(can_view_exact(user)),
             "last_status": last.status if last else None,
@@ -40,7 +40,8 @@ class TrapService:
         }
 
     def create_trap(self, user: UserModel, line_id: int, data: TrapIn) -> dict:
-        if not self.lines.get(line_id):
+        line = self.lines.get(line_id)
+        if not line:
             raise ServiceError("Trap line not found.", 404)
         if data.code is not None and self.traps.code_exists(line_id, data.code):
             raise ServiceError("This trap code already exists on that trap line.", 409)
@@ -50,17 +51,18 @@ class TrapService:
             line_id,
             data.code,
             data.trap_type,
-            data.general_area,
+            line.general_area,
             data.exact_lat,
             data.exact_lng,
             data.is_sensitive,
         )
-        return self._view(trap, user)
+        return self._view(trap, user, line.general_area)
 
     def list_traps(self, user: UserModel, line_id: int) -> list[dict]:
-        if not self.lines.get(line_id):
+        line = self.lines.get(line_id)
+        if not line:
             raise ServiceError("Trap line not found.", 404)
-        return [self._view(t, user) for t in self.traps.list_by_line(line_id)]
+        return [self._view(t, user, line.general_area) for t in self.traps.list_by_line(line_id)]
 
     def log_check(self, user: UserModel, trap_id: int, data: CheckIn):
         if not self.traps.get(trap_id):

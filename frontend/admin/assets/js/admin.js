@@ -515,13 +515,13 @@ async function mapPage() {
 
 // ================= DROPDOWN CHOICES =================
 // Friendlier labels for some fields.
-const LABELS = { trap_line_id: "Trap line", trap_id: "Trap", is_sensitive: "Sensitive location?", species: "Species caught", notes: "Notes (optional)", checked_at: "Checked at (optional)", can_view_exact_location: "Can see exact locations?" };
+const LABELS = { trap_line_id: "Trap line", trap_id: "Trap", trap_code: "Trap", trap_line: "Trap line", recorded_by: "Recorded by", recorded_at: "Recorded at", is_sensitive: "Sensitive location?", species: "Species caught", notes: "Notes (optional)", checked_at: "Checked at (optional)", can_view_exact_location: "Can see exact locations?" };
 
 // Fixed lists. Add or remove words here to change what users can pick.
 const opt = (arr) => arr.map((v) => ({ value: v, label: v }));
 const FIXED = {
   species:      opt(["possum", "rat", "stoat", "mouse", "hedgehog", "other"]),
-  trap_type:    opt(["possum", "rat", "stoat"]),
+  trap_type:    opt(["possum", "rat", "stoat", "mouse", "hedgehog", "other"]),
   last_status:  opt(["caught", "empty", "bait_needed", "sprung"]),
   is_sensitive: [{ value: true, label: "Yes" }, { value: false, label: "No" }],
   can_view_exact_location: [{ value: true, label: "Yes" }, { value: false, label: "No" }],
@@ -549,14 +549,12 @@ async function loadChoices(fields) {
 const lineNames = async () => Object.fromEntries(list(await api.getLines()).map((l) => [l.id, l.name]));
 
 const CRUD = {
-  traps:   { title: "Traps",      one: "trap",      fields: ["code"], editFields: ["trap_type", "general_area", "is_sensitive", "exact_lat", "exact_lng"], addFields: ["trap_line_id", "trap_type", "general_area", "is_sensitive", "exact_lat", "exact_lng"],  load: api.getTraps,   add: api.addTrap,   update: api.updateTrap,   remove: api.deleteTrap,
+  traps:   { title: "Traps",      one: "trap",      fields: ["code"], editFields: ["trap_type", "is_sensitive", "exact_lat", "exact_lng"], addFields: ["trap_line_id", "trap_type", "is_sensitive", "exact_lat", "exact_lng"],  load: api.getTraps,   add: api.addTrap,   update: api.updateTrap,   remove: api.deleteTrap,
              // extra read-only columns: line name + overdue status
              decorate: async (rows) => { const ln = await lineNames(); rows.forEach((r) => { r.trap_line = ln[r.trap_line_id] || ""; r.check_state = trapState(r).label; }); } },
   lines:   { title: "Trap lines", one: "trap line", fields: ["name", "general_area"],          load: api.getLines,   add: api.addLine,   update: api.updateLine,   remove: api.deleteLine },
-  catches: { title: "Catches",    one: "catch",     fields: ["trap_id", "species"], editFields: ["species"], addFields: ["trap_id", "species", "notes", "checked_at"], load: api.getCatches, add: api.addCatch, update: api.updateCatch, remove: api.deleteCatch,
-             volunteerCan: ["add"],
-             decorate: async (rows) => { const ln = await lineNames(); const byId = Object.fromEntries(list(await api.getTraps()).map((t) => [t.id, t]));
-               rows.forEach((r) => { const t = byId[r.trap_id]; r.trap_code = t ? t.code : ""; r.trap_line = t ? (ln[t.trap_line_id] || "") : ""; }); } },
+  catches: { title: "Catches",    one: "catch",     fields: ["trap_id", "species"], tableFields: ["trap_code", "trap_line", "species", "recorded_at", "recorded_by"], hideId: true, editFields: ["species"], addFields: ["trap_id", "species", "notes", "checked_at"], load: api.getCatches, add: api.addCatch, update: api.updateCatch, remove: api.deleteCatch,
+             volunteerCan: ["add"] },
   users:   { title: "Users",      one: "user",      fields: ["name", "email", "role"], addFields: ["name", "email", "password", "role"], load: api.getUsers, add: api.addUser, update: api.updateUser, remove: api.deleteUser },
 };
 
@@ -573,15 +571,27 @@ async function tablePage() {
 
     // Use the columns the API really sends (skips id, dates added by the server, and nested objects).
     const skip = ["id", "created_at", "updated_at"];
-    const fields = rows.length
+    const fields = cfg.tableFields || (rows.length
       ? Object.keys(rows[0]).filter((k) => !skip.includes(k) && typeof rows[0][k] !== "object")
-      : cfg.fields;
+      : cfg.fields);
 
     // Build the table.
-    const cell = (f, r) => (f === "check_state" ? stateBadge(r) : esc(r[f]));
+    const formatRecordedAt = (value) => {
+      const date = parseDate(value);
+      return date ? date.toLocaleString("en-NZ", {
+        day: "numeric", month: "short", year: "numeric",
+        hour: "numeric", minute: "2-digit", hour12: true,
+      }) : value;
+    };
+    const cell = (f, r) => {
+      if (f === "check_state") return stateBadge(r);
+      if (f === "recorded_at") return esc(formatRecordedAt(r[f]));
+      return esc(r[f]);
+    };
     const pretty = (f) => LABELS[f] || f.replace(/_/g, " ");
-    const head = ["id", ...fields].map((f) => `<th>${esc(pretty(f))}</th>`).join("") + "<th></th>";
-    const body = rows.map((r) => `<tr>` + ["id", ...fields].map((f) => `<td>${cell(f, r)}</td>`).join("") +
+    const columns = cfg.hideId ? fields : ["id", ...fields];
+    const head = columns.map((f) => `<th>${esc(pretty(f))}</th>`).join("") + "<th></th>";
+    const body = rows.map((r) => `<tr>` + columns.map((f) => `<td>${cell(f, r)}</td>`).join("") +
       `<td class="text-end text-nowrap">
         ${PAGE === "traps" && isCoord() ? `<button class="btn btn-sm btn-outline-secondary" data-qr="${esc(r.id)}" title="QR code"><i class="bi bi-qr-code"></i></button>` : ""}
         ${cfg.update && can("edit") ? `<button class="btn btn-sm btn-outline-primary" data-edit="${esc(r.id)}"><i class="bi bi-pencil"></i> Edit</button>` : ""}
@@ -595,7 +605,10 @@ async function tablePage() {
     // Export every row to a CSV file.
     document.getElementById("csv").onclick = () => {
       if (!rows.length) return fail(new Error("There is nothing to export yet."));
-      downloadCSV(PAGE + "-" + new Date().toISOString().slice(0, 10) + ".csv", rows, ["id", ...fields]);
+      const exportRows = PAGE === "catches"
+        ? rows.map((r) => ({ ...r, recorded_at: formatRecordedAt(r.recorded_at) }))
+        : rows;
+      downloadCSV(PAGE + "-" + new Date().toISOString().slice(0, 10) + ".csv", exportRows, columns);
     };
 
     // QR button -> show this trap's QR code.

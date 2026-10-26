@@ -20,6 +20,9 @@ BAIT = {
     "possum": "Apple or peanut butter",
     "rat": "Peanut butter or chocolate",
     "stoat": "Fresh egg or rabbit meat",
+    "mouse": "Choose bait suitable for this trap type",
+    "hedgehog": "Choose bait suitable for this trap type",
+    "other": "Choose bait suitable for this trap type",
 }
 
 
@@ -76,7 +79,6 @@ def update_trap(
             raise ServiceError("This trap code already exists on that trap line.", 409)
         _set(trap, ("code",), data.code)
     _set(trap, ("trap_type", "type"), data.trap_type)
-    _set(trap, ("general_area",), data.general_area)
     _set(trap, ("exact_lat", "lat", "latitude"), data.exact_lat)
     _set(trap, ("exact_lng", "lng", "longitude"), data.exact_lng)
     _set(trap, ("is_sensitive",), data.is_sensitive)
