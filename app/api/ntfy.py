@@ -10,9 +10,12 @@ from pydantic import BaseModel
 from app.api.deps import get_current_user, require_coordinator
 from app.errors import ServiceError
 
-# Settings come from environment variables, with the topic as a fallback for local testing.
+# Use a local-only fallback; hosted deployments must supply their own topic.
 NTFY_SERVER = os.getenv("NTFY_SERVER", "https://ntfy.sh")
-NTFY_TOPIC = os.getenv("NTFY_TOPIC", "pestfree-CQc7AQmWmpGuv20C")  # no slash at the start
+_default_topic = "pestfree-CQc7AQmWmpGuv20C"
+NTFY_TOPIC = os.getenv("NTFY_TOPIC", "")
+if not NTFY_TOPIC and not os.getenv("RENDER"):
+    NTFY_TOPIC = _default_topic
 NTFY_TOKEN = os.getenv("NTFY_TOKEN", "")  # optional, only for protected topics
 
 
@@ -64,6 +67,11 @@ def info(_=Depends(get_current_user)):
 @router.post("/test")
 def test(data: TestIn, _=Depends(require_coordinator)):
     """Send a test alert (coordinators only)."""
+    if not NTFY_TOPIC:
+        raise ServiceError(
+            "NTFY_TOPIC is not set on the server. Configure it in Render's Environment settings.",
+            503,
+        )
     try:
         send_ntfy(data.title, data.message, tags=["white_check_mark"])
     except HTTPError as err:
