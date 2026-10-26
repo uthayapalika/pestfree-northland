@@ -54,3 +54,30 @@ class StoatTrap(Trap):
 
     def recommended_bait(self) -> str:
         return "Fresh egg or rabbit meat"
+
+
+class MouseTrap(Trap):
+    @property
+    def trap_type(self) -> str:
+        return "mouse"
+
+    def recommended_bait(self) -> str:
+        return "Choose bait suitable for this trap type"
+
+
+class HedgehogTrap(Trap):
+    @property
+    def trap_type(self) -> str:
+        return "hedgehog"
+
+    def recommended_bait(self) -> str:
+        return "Choose bait suitable for this trap type"
+
+
+class OtherTrap(Trap):
+    @property
+    def trap_type(self) -> str:
+        return "other"
+
+    def recommended_bait(self) -> str:
+        return "Choose bait suitable for this trap type"

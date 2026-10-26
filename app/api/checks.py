@@ -7,9 +7,15 @@ from sqlalchemy.orm import Session
 from app.api.deps import get_current_user, require_coordinator
 from app.api.ntfy import notify
 from app.db.database import get_db
-from app.db.models import CatchModel, TrapCheckModel, TrapModel
+from app.db.models import (
+    CatchModel,
+    TrapCheckModel,
+    TrapLineModel,
+    TrapModel,
+    UserModel,
+)
 from app.errors import ServiceError
-from app.schemas import CatchCreateIn, CatchIn, CatchOut
+from app.schemas import CatchCreateIn, CatchIn, CatchListOut, CatchOut
 from app.services.trap_service import TrapService
 
 router = APIRouter(prefix="/checks", tags=["Catches"])
@@ -30,9 +36,29 @@ def record_catch(
     return catch
 
 
-@catches_router.get("", response_model=list[CatchOut])
+@catches_router.get("", response_model=list[CatchListOut])
 def list_catches(db: Session = Depends(get_db), _=Depends(get_current_user)):
-    return list(db.scalars(select(CatchModel).order_by(CatchModel.recorded_at.desc(), CatchModel.id.desc())))
+    rows = db.execute(
+        select(CatchModel, TrapModel.code, TrapLineModel.name, UserModel.name)
+        .join(TrapModel, CatchModel.trap_id == TrapModel.id)
+        .join(TrapLineModel, TrapModel.trap_line_id == TrapLineModel.id)
+        .join(TrapCheckModel, CatchModel.check_id == TrapCheckModel.id)
+        .join(UserModel, TrapCheckModel.user_id == UserModel.id)
+        .order_by(CatchModel.recorded_at.desc(), CatchModel.id.desc())
+    )
+    return [
+        {
+            "id": catch.id,
+            "check_id": catch.check_id,
+            "trap_id": catch.trap_id,
+            "species": catch.species,
+            "recorded_at": catch.recorded_at,
+            "trap_code": trap_code,
+            "trap_line": trap_line,
+            "recorded_by": recorded_by,
+        }
+        for catch, trap_code, trap_line, recorded_by in rows
+    ]
 
 
 @catches_router.post("", response_model=CatchOut, status_code=201)

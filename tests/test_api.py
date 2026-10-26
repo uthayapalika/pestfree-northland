@@ -69,7 +69,7 @@ def test_sensitive_location_protection(client, coord, vol):
     url = f"/trap-lines/{line['id']}/traps"
     assert client.get(url, headers=coord).json()[0]["exact_lat"] == -35.5
     seen = client.get(url, headers=vol).json()[0]
-    assert seen["exact_lat"] is None and seen["general_area"] == "Hills"
+    assert seen["exact_lat"] is None and seen["general_area"] == "Northland"
     vol_id = client.get("/auth/me", headers=vol).json()["id"]
     r = client.patch(
         f"/users/{vol_id}/location-access",
@@ -136,6 +136,54 @@ def test_trap_code_is_generated_and_preserved_when_omitted(client, coord):
     assert next(t for t in traps if t["id"] == first.json()["id"])["code"] == first_code
 
 
+def test_all_catch_species_are_supported_as_trap_types(client, coord):
+    line = client.post(
+        "/trap-lines",
+        json={"name": "Species Line", "general_area": "Northland"},
+        headers=coord,
+    ).json()
+    for species in ("mouse", "hedgehog", "other"):
+        created = client.post(
+            f"/trap-lines/{line['id']}/traps",
+            headers=coord,
+            json={"trap_type": species, "general_area": "Hills"},
+        )
+        assert created.status_code == 201
+        assert created.json()["trap_type"] == species
+        updated = client.put(
+            f"/traps/{created.json()['id']}",
+            headers=coord,
+            json={"trap_type": species, "general_area": "Ridge"},
+        )
+        assert updated.status_code == 200
+
+
+def test_traps_inherit_general_area_from_trap_line(client, coord):
+    line = client.post(
+        "/trap-lines",
+        json={"name": "North Track", "general_area": "Northland"},
+        headers=coord,
+    ).json()
+    created = client.post(
+        f"/trap-lines/{line['id']}/traps",
+        headers=coord,
+        json={
+            "trap_type": "rat",
+            "general_area": "Obsolete duplicate area",
+        },
+    )
+    assert created.status_code == 201
+    assert created.json()["general_area"] == "Northland"
+
+    client.put(
+        f"/trap-lines/{line['id']}",
+        headers=coord,
+        json={"name": "North Track", "general_area": "Updated Northland"},
+    )
+    listed = client.get(f"/trap-lines/{line['id']}/traps", headers=coord)
+    assert listed.json()[0]["general_area"] == "Updated Northland"
+
+
 def test_check_catch_and_last_status(client, coord, vol):
     line, trap = _setup_sensitive_trap(client, coord)
     check = client.post(
@@ -180,6 +228,10 @@ def test_catch_crud(client, coord, vol):
 
     listing = client.get("/catches", headers=coord)
     assert listing.status_code == 200 and listing.json()[0]["id"] == catch["id"]
+    listed_catch = listing.json()[0]
+    assert listed_catch["trap_code"] == trap["code"]
+    assert listed_catch["trap_line"] == "Line A"
+    assert listed_catch["recorded_by"] == "Vol One"
     assert client.put(
         f"/catches/{catch['id']}", json={"species": "rat"}, headers=vol
     ).status_code == 403
