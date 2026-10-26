@@ -4,9 +4,9 @@ from typing import Literal, Optional
 from pydantic import BaseModel, ConfigDict, Field
 
 Role = Literal["volunteer", "coordinator"]
-TrapType = Literal["possum", "rat", "stoat"]
 CheckStatus = Literal["empty", "caught", "bait_needed", "sprung"]
 Species = Literal["possum", "rat", "stoat", "mouse", "hedgehog", "other"]
+TrapType = Species
 
 
 class RegisterIn(BaseModel):
@@ -56,7 +56,7 @@ class TrapLineOut(BaseModel):
 class TrapIn(BaseModel):
     code: Optional[str] = Field(default=None, min_length=1, max_length=30)
     trap_type: TrapType
-    general_area: str = Field(min_length=2, max_length=120)
+    general_area: Optional[str] = Field(default=None, min_length=2, max_length=120)
     exact_lat: Optional[float] = Field(default=None, ge=-90, le=90)
     exact_lng: Optional[float] = Field(default=None, ge=-180, le=180)
     is_sensitive: bool = False
@@ -110,6 +110,12 @@ class CatchOut(BaseModel):
     trap_id: int
     species: Species
     recorded_at: datetime
+
+
+class CatchListOut(CatchOut):
+    trap_code: str
+    trap_line: str
+    recorded_by: str
 
 
 class ReportRow(BaseModel):
