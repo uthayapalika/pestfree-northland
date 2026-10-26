@@ -1,6 +1,10 @@
 __pycache__/
 *.pyc
 *.db
+*.sqlite
+*.sqlite3
 .pytest_cache/
 .env
 .venv/
+pestfree/
+requirements.old.txt
