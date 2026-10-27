@@ -91,6 +91,7 @@ def update_trap(
     _set(trap, ("is_sensitive",), data.is_sensitive)
     if data.status is not None:
         _set(trap, ("status",), data.status)
+    _set(trap, ("inspection_interval_days",), data.inspection_interval_days)
     _set(trap, ("recommended_bait",), BAIT[data.trap_type], required=False)
     after = trap_snapshot(trap)
     record_audit(db, user, "updated", "trap", trap_id, before, after)
