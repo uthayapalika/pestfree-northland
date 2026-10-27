@@ -2,9 +2,30 @@
 
 1. Create and activate an environment: `python -m venv .venv`
 2. Install dependencies: `pip install -r requirements.txt`
-3. For **local development only**, create sample data with `python -m app.seed`.
-   **This command deletes all data in the configured database. Never run it on
-   the hosted/production database.**
+3. For **local development only**, create the full sample database with
+   `python -m app.seed`. **This command deletes all data in the configured
+   database. Never run it on the hosted/production database.**
+
+   To add the operational demo through an API instead (including inventory,
+   field tasks and assignments), start the server and run:
+
+   ```powershell
+   python app/seed_demo.py http://127.0.0.1:8000 coordinator@example.com Coord1234
+   ```
+
+   The same command can seed a Render deployment safely, by default:
+
+   ```powershell
+   python app/seed_demo.py https://pestfree-northland.onrender.com coordinator@example.com "your-password"
+   ```
+
+   Use the coordinator email/password for that server. The API seed is
+   non-destructive and skips existing records. `--reset` removes all trap lines,
+   traps and catches after confirmation; it does not delete inventory or tasks.
+
+   Do not run `python -m app.seed` on Render. If you intentionally run it from
+   a Render Shell, it will replace the entire hosted database. A safer Render
+   seed is the API command above.
 4. Start the server: `python -m uvicorn app.main:app --reload`
 5. Open `http://127.0.0.1:8000/admin/login.html`; API docs are at
    `http://127.0.0.1:8000/docs`.
@@ -12,6 +33,21 @@
 Run tests with `python -m pytest`.
 
 The database entity-relationship diagram is in [docs/erd.md](docs/erd.md).
+
+The local seed creates demo inventory, field tasks, trap-line assignments, and audit history. The offline sync page is stored on the signed-in browser rather than in the database, so inspect it with a clean browser profile or add representative local sync records by running this in the sync page's browser console:
+
+```javascript
+const userId = JSON.parse(localStorage.getItem("user")).id;
+const now = new Date().toISOString();
+localStorage.setItem("outbox", JSON.stringify([
+  { path: "/traps/1/checks", body: { status: "empty", notes: "Queued during demo" }, label: "BH-01 - empty", owner_id: userId, queued_at: now }
+]));
+localStorage.setItem("syncHistory", JSON.stringify([
+  { label: "BH-02 - caught", owner_id: userId, status: "failed", error: "Network offline", changed_at: now },
+  { label: "MP-01 - bait needed", owner_id: userId, status: "uploaded", changed_at: now }
+]));
+location.reload();
+```
 
 Use a unique `SECRET_KEY` and a persistent PostgreSQL database for a hosted
 deployment. Set `DATABASE_URL` and `SECRET_KEY` in the hosting provider's

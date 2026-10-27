@@ -1,12 +1,13 @@
-"""seed_demo.py - adds sample Auckland trap lines (suburbs and reserves), traps and catches through your API.
+"""seed_demo.py - adds sample operational data through the API (local or Render).
 
 Usage (PowerShell, from your project folder):
     python seed_demo.py https://pestfree-northland.onrender.com you@example.com your-password
     python seed_demo.py https://pestfree-northland.onrender.com you@example.com your-password --reset
 
  - Without --reset: adds only what is missing, so it is safe to run again.
+ - It also adds inventory items, stock movements, field tasks and trap-line assignments.
  - With --reset: first DELETES ALL trap lines, traps and catches, then adds the demo data again.
-   Use this only on a demo database, never on real data.
+   Inventory and operational records are not deleted. Use only on a demo database.
 
 Log in with your coordinator account. Coordinates are approximate and made up for a demo.
 NOTE: each new trap and catch sends an ntfy alert, so mute the topic in the ntfy app while seeding (a full first run sends about 50 alerts).
@@ -217,6 +218,7 @@ def main():
             print(f"Trap line: {line['name']}")
         else:
             print(f"Trap line already exists: {line['name']}")
+        existing_lines[line["name"]] = line_id
 
         have = {t["code"] for t in call(base, "GET", f"/trap-lines/{line_id}/traps", token=token)}
         for code, trap_type, lat, lng, sensitive in line["traps"]:
@@ -234,7 +236,78 @@ def main():
             call(base, "POST", "/catches", {"trap_id": new_trap_ids[code], "species": species}, token)
             print(f"Catch: {species} in {code}")
 
-    print("Done.")
+    users = call(base, "GET", "/users", token=token)
+    field_worker = next((user for user in users if user["email"] == "field@example.com"), None)
+    if field_worker is None:
+        field_worker = call(base, "POST", "/users", {
+            "name": "Kai Field Worker",
+            "email": "field@example.com",
+            "password": "Field1234",
+            "role": "field_worker",
+        }, token)
+        print("Field worker: field@example.com / Field1234")
+
+    inventory = call(base, "GET", "/inventory", token=token)
+    inventory_by_name = {item["name"]: item for item in inventory}
+    created_inventory_names = set()
+    inventory_items = [
+        ("Fresh Possum Lure", "bait", "packs", 18, 12),
+        ("DOC 200 traps", "equipment", "items", 7, 10),
+        ("UV trap marker tags", "maintenance", "packets", 24, 5),
+        ("Replacement trap springs", "maintenance", "pairs", 3, 8),
+    ]
+    for name, category, unit, quantity, reorder_level in inventory_items:
+        if name not in inventory_by_name:
+            inventory_by_name[name] = call(base, "POST", "/inventory", {
+                "name": name, "category": category, "unit": unit,
+                "quantity": quantity, "reorder_level": reorder_level,
+            }, token)
+            created_inventory_names.add(name)
+            print(f"Inventory item: {name}")
+    if "Fresh Possum Lure" in created_inventory_names:
+        call(base, "POST", f"/inventory/{inventory_by_name['Fresh Possum Lure']['id']}/movements", {
+            "quantity_change": -6, "reason": "Seeded issue for Mount Eden field checks",
+        }, token)
+    if "DOC 200 traps" in created_inventory_names:
+        call(base, "POST", f"/inventory/{inventory_by_name['DOC 200 traps']['id']}/movements", {
+            "quantity_change": -3, "reason": "Seeded issue for replacement traps",
+        }, token)
+
+    mount_eden_id = existing_lines.get("Mount Eden Line")
+    mount_eden_traps = call(base, "GET", f"/trap-lines/{mount_eden_id}/traps", token=token)
+    me01 = next(trap for trap in mount_eden_traps if trap["code"] == "ME-01")
+    assignments = call(base, "GET", f"/trap-lines/{mount_eden_id}/assignments", token=token)
+    if not any(item["user_id"] == field_worker["id"] for item in assignments):
+        call(base, "POST", f"/trap-lines/{mount_eden_id}/assignments", {
+            "user_id": field_worker["id"],
+        }, token)
+
+    existing_tasks = call(base, "GET", "/tasks", token=token)
+    task_titles = {task["title"] for task in existing_tasks}
+    demo_tasks = [
+        {
+            "title": "Reset ME-01 and replace lure",
+            "notes": "Confirm the trap is stable and clear nearby vegetation.",
+            "assigned_to": field_worker["id"],
+            "trap_id": me01["id"],
+            "trap_line_id": mount_eden_id,
+            "due_at": "2026-10-29T23:59:59Z",
+        },
+        {
+            "title": "Inspect Mount Eden upper loop",
+            "notes": "Check all traps and record bait, sprung or catch status.",
+            "assigned_to": field_worker["id"],
+            "trap_id": None,
+            "trap_line_id": mount_eden_id,
+            "due_at": "2026-10-27T23:59:59Z",
+        },
+    ]
+    for task in demo_tasks:
+        if task["title"] not in task_titles:
+            call(base, "POST", "/tasks", task, token)
+            print(f"Field task: {task['title']}")
+
+    print("Done. Inventory and field-task demo data are ready on this server.")
 
 
 main()
