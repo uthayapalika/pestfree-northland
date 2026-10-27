@@ -11,9 +11,11 @@ const isFieldWorker = () => me.role === "field_worker";
 // Menu links: [page name, label, icon, coordinator only?]
 const NAV = [
   ["dashboard", "Dashboard", "speedometer2"], ["check", "Field check", "clipboard-check"],
+  ["tasks", "Field tasks", "clipboard2-check"], ["sync", "Sync status", "arrow-repeat"],
   ["map", "Map", "map"], ["traps", "Traps", "geo-alt"], ["lines", "Trap lines", "diagram-3"],
   ["catches", "Catches", "bug"], ["reports", "Reports", "bar-chart", true],
-  ["qr", "QR codes", "qr-code", true], ["users", "Users", "people", true], ["settings", "Settings", "gear"],
+  ["qr", "QR codes", "qr-code", true], ["audit", "Audit history", "journal-text", true],
+  ["users", "Users", "people", true], ["settings", "Settings", "gear"],
 ];
 const COORD_ONLY = NAV.filter((n) => n[3]).map((n) => n[0]);
 
@@ -83,7 +85,9 @@ function closeSidebar() {
 
 // Draw the sidebar + top bar, and put `inner` HTML underneath.
 function shell(title, inner) {
-  const links = NAV.filter((n) => isFieldWorker() ? n[0] === "check" : (!n[3] || isCoord())).map(([id, label, icon]) =>
+  const links = NAV.filter((n) => isFieldWorker()
+    ? ["check", "tasks", "sync"].includes(n[0])
+    : (!n[3] || isCoord())).map(([id, label, icon]) =>
     `<a class="nav-link ${id === PAGE ? "active" : ""}" href="${id}.html"><i class="bi bi-${icon}"></i> ${label}</a>`
   ).join("");
   const initial = esc((me.name || me.email || "?").trim().charAt(0).toUpperCase());
@@ -114,7 +118,7 @@ function shell(title, inner) {
           </div>
         </header>
         <main class="page-body">
-          <div id="err" class="alert alert-danger d-none"></div>${inner}
+          <div id="err" class="alert alert-danger d-none" role="alert" aria-live="assertive"></div>${inner}
         </main>
       </div>
     </div>`;
@@ -666,17 +670,141 @@ const CRUD = {
   users:   { title: "Users",      one: "user",      fields: ["name", "email", "role"], addFields: ["name", "email", "password", "role"], load: api.getUsers, add: api.addUser, update: api.updateUser, remove: api.deleteUser },
 };
 
+function parseCsvText(text) {
+  const rows = [];
+  let row = [], cell = "", quoted = false;
+  for (let index = 0; index < text.length; index++) {
+    const character = text[index];
+    if (quoted) {
+      if (character === '"' && text[index + 1] === '"') {
+        cell += '"';
+        index++;
+      } else if (character === '"') quoted = false;
+      else cell += character;
+    } else if (character === '"' && !cell) quoted = true;
+    else if (character === ",") { row.push(cell); cell = ""; }
+    else if (character === "\n" || character === "\r") {
+      row.push(cell);
+      if (row.some((value) => value.trim())) rows.push(row);
+      row = [];
+      cell = "";
+      if (character === "\r" && text[index + 1] === "\n") index++;
+    } else cell += character;
+  }
+  if (quoted) throw new Error("The CSV has an unclosed quoted field.");
+  row.push(cell);
+  if (row.some((value) => value.trim())) rows.push(row);
+  return rows;
+}
+
+function setupTrapCsvImport() {
+  const fileInput = document.getElementById("csv-file");
+  document.getElementById("import-csv").onclick = () => fileInput.click();
+  document.getElementById("csv-template").onclick = () => downloadCSV(
+    "trap-import-template.csv",
+    [{
+      trap_line: "North line",
+      code: "N-01",
+      trap_type: "rat",
+      general_area: "Northland",
+      exact_lat: "",
+      exact_lng: "",
+      is_sensitive: "false",
+      status: "active",
+    }],
+    ["trap_line", "code", "trap_type", "general_area", "exact_lat", "exact_lng", "is_sensitive", "status"]
+  );
+  fileInput.onchange = async () => {
+    const file = fileInput.files[0];
+    fileInput.value = "";
+    if (!file) return;
+    try {
+      const parsed = parseCsvText((await file.text()).replace(/^\uFEFF/, ""));
+      if (parsed.length < 2) throw new Error("The CSV must include headers and at least one trap row.");
+      const headers = parsed[0].map((header) => header.trim().toLowerCase());
+      const required = ["trap_line", "trap_type"];
+      const allowed = new Set(["trap_line", "code", "trap_type", "general_area", "exact_lat", "exact_lng", "is_sensitive", "status"]);
+      const duplicates = headers.filter((header, index) => headers.indexOf(header) !== index);
+      if (duplicates.length) throw new Error("Duplicate CSV column(s): " + [...new Set(duplicates)].join(", "));
+      const unknown = headers.filter((header) => !allowed.has(header));
+      if (unknown.length) throw new Error("Unknown CSV column(s): " + [...new Set(unknown)].join(", "));
+      const missing = required.filter((header) => !headers.includes(header));
+      if (missing.length) throw new Error("Missing required columns: " + missing.join(", "));
+      const rows = parsed.slice(1).map((cells, rowIndex) => {
+        if (cells.length !== headers.length) {
+          throw new Error(`Row ${rowIndex + 2} has ${cells.length} values; expected ${headers.length}.`);
+        }
+        const row = Object.fromEntries(headers.map((header, index) => [header, cells[index].trim()]));
+        if (!row.trap_line || !row.trap_type) {
+          throw new Error(`Row ${rowIndex + 2} needs a trap_line and trap_type.`);
+        }
+        for (const field of ["exact_lat", "exact_lng"]) {
+          if (row[field] === undefined || row[field] === "") row[field] = null;
+          else if (!Number.isFinite(Number(row[field]))) {
+            throw new Error(`Row ${rowIndex + 2}: ${field} must be a number.`);
+          } else row[field] = Number(row[field]);
+        }
+        if (row.is_sensitive === undefined || row.is_sensitive === "") row.is_sensitive = false;
+        else if (["true", "yes", "1"].includes(row.is_sensitive.toLowerCase())) row.is_sensitive = true;
+        else if (["false", "no", "0"].includes(row.is_sensitive.toLowerCase())) row.is_sensitive = false;
+        else throw new Error(`Row ${rowIndex + 2}: is_sensitive must be true or false.`);
+        if (row.is_sensitive && (row.exact_lat === null || row.exact_lng === null)) {
+          throw new Error(`Row ${rowIndex + 2}: sensitive traps need both exact_lat and exact_lng.`);
+        }
+        if (row.status === "") delete row.status;
+        return row;
+      });
+      const confirmation = await Box.fire({
+        title: "Import trap CSV?",
+        text: `${rows.length} row(s) will be validated. Existing codes are rejected unless update mode is enabled.`,
+        input: "checkbox",
+        inputPlaceholder: "Update existing traps with matching trap line and code",
+        showCancelButton: true,
+        confirmButtonText: "Validate and import",
+        cancelButtonText: "Cancel",
+      });
+      if (!confirmation.isConfirmed) return;
+      const updateExisting = confirmation.value === 1 || confirmation.value === true;
+      const result = await api.importTraps(rows, updateExisting);
+      if (result.errors.length) {
+        await Box.fire({
+          icon: "error",
+          title: "No traps imported",
+          html: `<p>Fix these CSV issues and try again:</p><ul class="text-start">${result.errors.map((error) => `<li>${esc(error)}</li>`).join("")}</ul>`,
+        });
+        return;
+      }
+      await Box.fire({
+        icon: "success",
+        title: "Import complete",
+        text: `${result.created} created, ${result.updated} updated.`,
+      });
+      tablePage();
+    } catch (error) {
+      fail(error);
+    }
+  };
+}
+
 async function tablePage() {
   const cfg = CRUD[PAGE];
   const can = (action) => isCoord() || (cfg.volunteerCan || []).includes(action);
-  const addButton = cfg.add && can("add") ? `<button id="add" class="btn btn-primary mb-3"><i class="bi bi-plus-lg"></i> Add ${cfg.one}</button>` : "";
+  const addButton = cfg.add && can("add")
+    ? `<button id="add" class="btn btn-primary mb-3"><i class="bi bi-plus-lg"></i> Add ${cfg.one}</button>`
+    : "";
+  const importButton = PAGE === "traps" && isCoord()
+    ? `<button id="import-csv" class="btn btn-outline-primary mb-3 ms-2"><i class="bi bi-upload"></i> Import CSV</button>
+       <button id="csv-template" class="btn btn-outline-secondary mb-3 ms-2">CSV template</button>
+       <input id="csv-file" type="file" accept=".csv,text/csv" class="d-none" aria-label="Choose trap CSV file">`
+    : "";
   const exportButtons = `<button id="csv" class="btn btn-outline-secondary mb-3 ${addButton ? "ms-2" : ""}"><i class="bi bi-download"></i> Export CSV</button>
     <button id="pdf" class="btn btn-outline-secondary mb-3 ms-2"><i class="bi bi-file-earmark-pdf"></i> Export PDF</button>`;
-  shell(cfg.title, addButton + exportButtons + "<div id='body'>Loading...</div>");
+  shell(cfg.title, addButton + importButton + exportButtons + "<div id='body'>Loading...</div>");
 
   try {
     const rows = list(await cfg.load());
     if (cfg.decorate) { try { await cfg.decorate(rows); } catch (e) {} }
+    if (PAGE === "traps" && isCoord()) setupTrapCsvImport();
 
     // Use the columns the API really sends (skips id, dates added by the server, and nested objects).
     const skip = ["id", "created_at", "updated_at"];
@@ -954,6 +1082,249 @@ async function qrPage() {
   document.getElementById("lf").onchange = draw;
   document.getElementById("print").onclick = () => window.print();
   draw();
+}
+
+async function tasksPage() {
+  shell("Field tasks", `<p class="text-secondary">Tasks assigned to your account and trap lines you are responsible for appear here.</p>
+    <div id="task-tools"></div><div id="task-body" aria-live="polite">Loading tasks...</div>`);
+  const body = document.getElementById("task-body");
+  const tools = document.getElementById("task-tools");
+  try {
+    const [tasks, assignments, fieldLines] = await Promise.all([
+      api.getTasks(),
+      isCoord() ? Promise.resolve([]) : api.getMyLineAssignments(),
+      isCoord() ? Promise.resolve([]) : api.getLines(),
+    ]);
+    const fieldLineNames = Object.fromEntries(fieldLines.map((line) => [line.id, line.name]));
+    let markup = "";
+    if (!isCoord()) {
+      markup += `<section class="card mb-3"><div class="card-body">
+        <h2 class="h5">Assigned trap lines</h2>
+        ${assignments.length
+          ? `<ul class="mb-0">${assignments.map((item) => `<li>${esc(fieldLineNames[item.trap_line_id] || `Trap line #${item.trap_line_id}`)}</li>`).join("")}</ul>`
+          : `<p class="mb-0 text-secondary">No trap lines are assigned to you yet.</p>`}
+      </div></section>`;
+    }
+    markup += `<section class="card"><div class="card-body">
+      <h2 class="h5">Your field tasks</h2>
+      ${tasks.length ? `<div class="list-group">${tasks.map((task) => `
+        <article class="list-group-item">
+          <div class="d-flex flex-wrap justify-content-between gap-2">
+            <div><h3 class="h6 mb-1">${esc(task.title)}</h3>
+              <p class="mb-1">${esc(task.trap_line || "Trap line")}${task.trap_code ? ` · Trap ${esc(task.trap_code)}` : ""}</p>
+              ${task.notes ? `<p class="mb-1">${esc(task.notes)}</p>` : ""}
+              <small class="text-secondary">${task.due_at ? `Due ${esc(new Date(task.due_at).toLocaleDateString())} · ` : ""}${esc(task.status)}${isCoord() ? ` · Assigned to ${esc(task.assigned_name)}` : ""}</small>
+            </div>
+            ${task.status === "open" && (isCoord() || String(task.assigned_to) === String(me.id))
+              ? `<button type="button" class="btn btn-success task-complete" data-id="${esc(task.id)}">Mark complete</button>`
+              : ""}
+          </div>
+        </article>`).join("")}</div>` : `<p class="mb-0 text-secondary">No field tasks yet.</p>`}
+    </div></section>`;
+    if (isCoord()) {
+      const [lines, users, traps] = await Promise.all([api.getLines(), api.getUsers(), api.getTraps()]);
+      const eligible = users.filter((user) => ["volunteer", "field_worker"].includes(user.role));
+      tools.innerHTML = `
+        <section class="card mb-3"><div class="card-body">
+          <h2 class="h5">Create a field task</h2>
+          <form id="task-form" class="row g-3">
+            <div class="col-md-6"><label class="form-label" for="task-title">Task</label><input id="task-title" class="form-control" required maxlength="120"></div>
+            <div class="col-md-6"><label class="form-label" for="task-assignee">Assign to</label>
+              <select id="task-assignee" class="form-select" required><option value="">Choose a volunteer or field worker</option>${eligible.map((u) => `<option value="${esc(u.id)}">${esc(u.name)} (${esc(u.role)})</option>`).join("")}</select></div>
+            <div class="col-md-6"><label class="form-label" for="task-target">Trap line</label>
+              <select id="task-target" class="form-select" required><option value="">Choose a trap line</option>${lines.map((l) => `<option value="${esc(l.id)}">${esc(l.name)}</option>`).join("")}</select></div>
+            <div class="col-md-6"><label class="form-label" for="task-trap">Specific trap (optional)</label>
+              <select id="task-trap" class="form-select"><option value="">Any trap on the line</option>${traps.map((t) => `<option value="${esc(t.id)}">${esc(t.code || `Trap ${t.id}`)}</option>`).join("")}</select></div>
+            <div class="col-md-6"><label class="form-label" for="task-due">Due date (optional)</label><input id="task-due" type="date" class="form-control"></div>
+            <div class="col-md-6"><label class="form-label" for="task-notes">Notes (optional)</label><input id="task-notes" maxlength="500" class="form-control"></div>
+            <div class="col-12"><button class="btn btn-primary" type="submit">Assign task</button></div>
+          </form>
+        </div></section>
+        <section class="card mb-3"><div class="card-body">
+          <h2 class="h5">Assign trap lines</h2>
+          <form id="assignment-form" class="row g-3">
+            <div class="col-md-5"><label class="form-label" for="assignment-line">Trap line</label><select id="assignment-line" class="form-select" required><option value="">Choose a line</option>${lines.map((l) => `<option value="${esc(l.id)}">${esc(l.name)}</option>`).join("")}</select></div>
+            <div class="col-md-5"><label class="form-label" for="assignment-user">Volunteer or field worker</label><select id="assignment-user" class="form-select" required><option value="">Choose a user</option>${eligible.map((u) => `<option value="${esc(u.id)}">${esc(u.name)} (${esc(u.role)})</option>`).join("")}</select></div>
+            <div class="col-md-2 d-flex align-items-end"><button class="btn btn-outline-primary" type="submit">Assign line</button></div>
+          </form>
+          <div id="assignment-list" class="mt-3"></div>
+        </div></section>`;
+      const trapSelect = document.getElementById("task-trap");
+      trapSelect.disabled = true;
+      document.getElementById("task-target").onchange = () => {
+        const selectedLine = document.getElementById("task-target").value;
+        trapSelect.value = "";
+        trapSelect.disabled = !selectedLine;
+        Array.from(trapSelect.options).forEach((option) => {
+          if (option.value) option.hidden = String(traps.find((trap) => String(trap.id) === option.value)?.trap_line_id) !== selectedLine;
+        });
+      };
+      document.getElementById("task-form").onsubmit = async (event) => {
+        event.preventDefault();
+        try {
+          const trapId = document.getElementById("task-trap").value;
+          const due = document.getElementById("task-due").value;
+          await api.addTask({
+            title: document.getElementById("task-title").value.trim(),
+            assigned_to: Number(document.getElementById("task-assignee").value),
+            trap_line_id: Number(document.getElementById("task-target").value),
+            trap_id: trapId ? Number(trapId) : null,
+            due_at: due ? new Date(due + "T23:59:59").toISOString() : null,
+            notes: document.getElementById("task-notes").value.trim(),
+          });
+          success("Task assigned");
+          tasksPage();
+        } catch (error) { fail(error); }
+      };
+      document.getElementById("assignment-form").onsubmit = async (event) => {
+        event.preventDefault();
+        try {
+          await api.assignLine(Number(document.getElementById("assignment-line").value), Number(document.getElementById("assignment-user").value));
+          await refreshAssignments();
+          success("Trap line assigned");
+        } catch (error) { fail(error); }
+      };
+      async function refreshAssignments() {
+        const entries = await Promise.all(lines.map(async (line) => ({
+          line, items: await api.getLineAssignments(line.id),
+        })));
+        const assignmentList = document.getElementById("assignment-list");
+        if (!assignmentList) return;
+        assignmentList.innerHTML = entries
+          .filter((entry) => entry.items.length)
+          .map(({ line, items }) => `<h3 class="h6 mt-3">${esc(line.name)}</h3><ul>${items.map((item) => `
+            <li>${esc(item.user_name)}
+              <button type="button" class="btn btn-sm btn-outline-danger ms-2 assignment-remove" data-id="${esc(item.id)}" aria-label="Remove ${esc(item.user_name)} from ${esc(line.name)}">Remove</button>
+            </li>`).join("")}</ul>`).join("") || `<p class="text-secondary mb-0">No line assignments yet.</p>`;
+        document.querySelectorAll(".assignment-remove").forEach((button) => {
+          button.onclick = async () => {
+            try {
+              await api.removeLineAssignment(Number(button.dataset.id));
+              await refreshAssignments();
+              success("Assignment removed");
+            } catch (error) { fail(error); }
+          };
+        });
+      }
+      await refreshAssignments();
+    } else {
+      tools.innerHTML = `<section class="card mb-3"><div class="card-body">
+        <h2 class="h5">Personal task notifications</h2>
+        <p>Optional: choose a private ntfy topic to receive assignment and reminder alerts. Subscribe to the same topic in the ntfy app, and keep its name private.</p>
+        <form id="topic-form" class="row g-2">
+          <div class="col-md-8"><label for="topic-name" class="form-label">Private ntfy topic name</label>
+            <input id="topic-name" class="form-control" minlength="16" maxlength="100" pattern="[A-Za-z0-9_-]{16,100}" autocomplete="off" placeholder="At least 16 letters, numbers, _ or -"></div>
+          <div class="col-md-4 d-flex align-items-end gap-2"><button class="btn btn-primary" type="submit">Save topic</button><button id="clear-topic" class="btn btn-outline-secondary" type="button">Clear</button></div>
+        </form>
+        <small class="text-secondary">${me.has_notification_topic ? "A personal topic is configured; the existing value is hidden." : "No personal topic is configured."}</small>
+      </div></section>`;
+      document.getElementById("topic-form").onsubmit = async (event) => {
+        event.preventDefault();
+        try {
+          const topic = document.getElementById("topic-name").value.trim();
+          if (!topic) throw new Error("Enter a topic name, or choose Clear to remove it.");
+          await api.setNotificationTopic(topic);
+          me.has_notification_topic = true;
+          localStorage.setItem("user", JSON.stringify(me));
+          success("Personal notification topic saved");
+          tasksPage();
+        } catch (error) { fail(error); }
+      };
+      document.getElementById("clear-topic").onclick = async () => {
+        try {
+          await api.setNotificationTopic(null);
+          me.has_notification_topic = false;
+          localStorage.setItem("user", JSON.stringify(me));
+          success("Personal notification topic cleared");
+          tasksPage();
+        } catch (error) { fail(error); }
+      };
+    }
+    body.innerHTML = markup;
+    body.querySelectorAll(".task-complete").forEach((button) => {
+      button.onclick = async () => {
+        try {
+          await api.setTaskStatus(Number(button.dataset.id), "completed");
+          success("Task marked complete");
+          tasksPage();
+        } catch (error) { fail(error); }
+      };
+    });
+  } catch (error) { fail(error); }
+}
+
+async function auditPage() {
+  shell("Audit history", `<p class="text-secondary">Coordinator-only record of changes to traps, users, catches and assignments.</p>
+    <div class="row g-2 mb-3">
+      <div class="col-sm-4"><label class="form-label" for="audit-entity">Filter by record</label>
+        <select id="audit-entity" class="form-select"><option value="">All changes</option><option value="trap">Traps</option><option value="user">Users</option><option value="catch">Catches</option><option value="trap_line">Trap lines</option></select></div>
+      <div class="col-sm-4"><label class="form-label" for="audit-id">Record ID (optional)</label><input id="audit-id" type="number" min="1" class="form-control"></div>
+      <div class="col-sm-4 d-flex align-items-end"><button id="audit-filter" class="btn btn-primary">Apply filter</button></div>
+    </div><div id="audit-body" aria-live="polite">Loading audit history...</div>`);
+  const render = async () => {
+    const entity = document.getElementById("audit-entity").value;
+    const id = document.getElementById("audit-id").value;
+    const params = new URLSearchParams();
+    if (entity) params.set("entity_type", entity);
+    if (id) params.set("entity_id", id);
+    try {
+      const events = await api.getAudit(params.toString() ? "?" + params : "");
+      document.getElementById("audit-body").innerHTML = events.length
+        ? `<div class="table-responsive"><table class="table table-striped align-middle"><thead><tr><th>When</th><th>Who</th><th>Change</th><th>Record</th><th>Details</th></tr></thead><tbody>${events.map((event) => `
+          <tr><td>${esc(new Date(event.changed_at).toLocaleString())}</td><td>${esc(event.actor_name)}</td>
+          <td>${esc(event.action)}</td><td>${esc(event.entity_type)} #${esc(event.entity_id)}</td>
+          <td><details><summary>View change</summary><pre class="small text-wrap mt-2">${esc(JSON.stringify({ before: event.before, after: event.after }, null, 2))}</pre></details></td></tr>`).join("")}</tbody></table></div>`
+        : `<p class="text-secondary">No audit records matched this filter.</p>`;
+    } catch (error) { fail(error); }
+  };
+  document.getElementById("audit-filter").onclick = render;
+  await render();
+}
+
+async function syncPage() {
+  shell("Offline sync status", `<p class="text-secondary">Failed checks remain on this device until they upload successfully. Queued records are private to the account that created them.</p>
+    <div id="sync-summary" class="mb-3" aria-live="polite"></div><div id="sync-body"></div>`);
+  const render = () => {
+    const queue = Outbox.all();
+    const history = Outbox.history().filter((entry) => !entry.owner_id || String(entry.owner_id) === String(me.id));
+    const ownQueue = queue.filter((job) => String(job.owner_id || "") === String(me.id));
+    const blockedQueue = queue.filter((job) => String(job.owner_id || "") !== String(me.id));
+    document.getElementById("sync-summary").innerHTML = `
+      <div class="row g-2">
+        <div class="col-md-4"><div class="card card-body"><strong>${ownQueue.length}</strong><span>Checks waiting for this account</span></div></div>
+        <div class="col-md-4"><div class="card card-body"><strong>${blockedQueue.length}</strong><span>Checks queued by another or unavailable account</span></div></div>
+        <div class="col-md-4"><div class="card card-body"><strong>${history.filter((entry) => entry.status === "uploaded").length}</strong><span>Recent successful uploads on this device</span></div></div>
+      </div>`;
+    document.getElementById("sync-body").innerHTML = `
+      <div class="d-flex flex-wrap align-items-center gap-2 mb-3">
+        <button id="retry-sync" type="button" class="btn btn-primary" ${ownQueue.length ? "" : "disabled"}>Retry my queued checks</button>
+        <span>${navigator.onLine ? "Online" : "Offline — reconnect to retry."}</span>
+      </div>
+      <h2 class="h5">Queued checks</h2>
+      ${queue.length ? `<div class="table-responsive"><table class="table table-striped"><thead><tr><th>Check</th><th>Owner</th><th>Queued</th><th>Status</th></tr></thead><tbody>${queue.map((job) => `
+        <tr><td>${esc(job.label || "Field check")}</td><td>${esc(job.owner_id || "Unassigned")}</td><td>${esc(job.queued_at ? new Date(job.queued_at).toLocaleString() : "Unknown")}</td><td>${String(job.owner_id) === String(me.id) ? "Waiting for upload" : "Not available to this account"}</td></tr>`).join("")}</tbody></table></div>`
+        : `<p class="text-secondary">No checks are queued.</p>`}
+      <h2 class="h5 mt-4">Recent sync activity</h2>
+      ${history.length ? `<div class="table-responsive"><table class="table table-striped"><thead><tr><th>When</th><th>Check</th><th>Status</th><th>Details</th></tr></thead><tbody>${history.map((entry) => `
+        <tr><td>${esc(new Date(entry.changed_at).toLocaleString())}</td><td>${esc(entry.label)}</td>
+        <td>${entry.status === "uploaded" ? "Uploaded" : "Failed; retained for retry"}</td><td>${esc(entry.error || "")}</td></tr>`).join("")}</tbody></table></div>`
+        : `<p class="text-secondary">No sync activity recorded on this device yet.</p>`}`;
+    const button = document.getElementById("retry-sync");
+    if (button) button.onclick = async () => {
+      button.disabled = true;
+      try {
+        const result = await Outbox.flush();
+        await render();
+        if (result.failed.length) fail(new Error(`${result.failed.length} check(s) still need attention. See sync activity for details.`));
+        else if (result.sent) success(`${result.sent} check(s) uploaded successfully`);
+        else if (!navigator.onLine) fail(new Error("You are offline. Reconnect and retry."));
+        else success("No queued checks were uploaded.");
+      } catch (error) { fail(error); }
+    };
+  };
+  render();
+  window.addEventListener("outbox-changed", render);
+  window.addEventListener("sync-history-changed", render);
 }
 
 
@@ -1396,11 +1767,11 @@ async function settingsPage() {
 
 // ================= START =================
 // Pick the right page function (after we know the user's role).
-const PAGES = { dashboard: dashboardPage, map: mapPage, reports: reportsPage, settings: settingsPage, check: checkPage, qr: qrPage };
+const PAGES = { dashboard: dashboardPage, map: mapPage, reports: reportsPage, settings: settingsPage, check: checkPage, qr: qrPage, tasks: tasksPage, sync: syncPage, audit: auditPage };
 (async () => {
   me = await ensureUser();
-  if (isFieldWorker() && PAGE !== "check") {
-    shell("Field checks only", "<p class='text-secondary'>Your Field Worker account can access field checks only. <a href='check.html'>Go to Field check</a></p>");
+  if (isFieldWorker() && !["check", "tasks", "sync"].includes(PAGE)) {
+    shell("Field operations only", "<p class='text-secondary'>Your Field Worker account can access field checks, assigned tasks and sync status. <a href='check.html'>Go to Field check</a></p>");
     return;
   }
   if (COORD_ONLY.includes(PAGE) && !isCoord()) {

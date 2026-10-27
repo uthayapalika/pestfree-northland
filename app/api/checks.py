@@ -16,6 +16,7 @@ from app.db.models import (
 )
 from app.errors import ServiceError
 from app.schemas import CatchCreateIn, CatchIn, CatchListOut, CatchOut
+from app.services.audit import catch_snapshot, record_audit
 from app.services.trap_service import TrapService
 
 router = APIRouter(prefix="/checks", tags=["Catches"])
@@ -28,9 +29,13 @@ def record_catch(
     data: CatchIn,
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
-    _=Depends(get_current_user),
+    user=Depends(get_current_user),
 ):
     catch = TrapService(db).record_catch(check_id, data)
+    record_audit(
+        db, user, "created", "catch", catch.id, None, catch_snapshot(catch)
+    )
+    db.commit()
     species = getattr(data.species, "value", data.species)
     background_tasks.add_task(notify, "New catch", f"{species} caught", tags=["bug"])
     return catch
@@ -104,6 +109,10 @@ def create_catch(
     db.add(catch)
     db.commit()
     db.refresh(catch)
+    record_audit(
+        db, user, "created", "catch", catch.id, None, catch_snapshot(catch)
+    )
+    db.commit()
     # Alert goes out AFTER the catch is saved (no location in the message).
     background_tasks.add_task(notify, "New catch", f"{catch.species} caught in trap {trap.code}", tags=["bug"])
     return catch
@@ -114,12 +123,16 @@ def update_catch(
     catch_id: int,
     data: CatchIn,
     db: Session = Depends(get_db),
-    _=Depends(require_coordinator),
+    user=Depends(require_coordinator),
 ):
     catch = db.get(CatchModel, catch_id)
     if not catch:
         raise ServiceError("Catch not found.", 404)
+    before = catch_snapshot(catch)
     catch.species = data.species
+    record_audit(
+        db, user, "updated", "catch", catch_id, before, catch_snapshot(catch)
+    )
     db.commit()
     db.refresh(catch)
     return catch
@@ -129,10 +142,13 @@ def update_catch(
 def delete_catch(
     catch_id: int,
     db: Session = Depends(get_db),
-    _=Depends(require_coordinator),
+    user=Depends(require_coordinator),
 ):
     catch = db.get(CatchModel, catch_id)
     if not catch:
         raise ServiceError("Catch not found.", 404)
+    record_audit(
+        db, user, "deleted", "catch", catch_id, catch_snapshot(catch), None
+    )
     db.delete(catch)
     db.commit()

@@ -68,13 +68,21 @@ creates the maintenance log table without removing existing trap data.
 ### Field Worker accounts and offline checks
 
 Coordinators can create **Field Worker** accounts from the Users page. Field
-Workers are directed to the Field check page and cannot access the other admin
-pages; they can submit checks and catches. Offline checks are queued on the
-device for the signed-in account and upload when it reconnects. If a device has
-queued checks for another account, those checks stay queued until that account
-signs in. Older queued checks from before account-specific syncing require
-confirmation before upload. Open the Field check page while online at least
-once so its trap data and app files are available offline.
+Workers can access field checks, assigned tasks, and Sync status; they can
+submit checks and catches. Coordinators can assign a trap line or individual
+follow-up task to a volunteer or field worker and track task completion. A
+worker can optionally configure a private ntfy topic (at least 16 characters)
+on the Field tasks page to receive direct assignment and reminder
+notifications. Subscribe to the same topic in the ntfy app. The personal topic
+is never returned in the public user profile.
+
+Offline checks are queued on the device for the signed-in account and upload
+when it reconnects. Failed uploads remain queued. Use **Sync status** to review
+the queue, see failed-upload details, and retry. If a device has queued checks
+for another account, those checks stay queued until that account signs in.
+Older queued checks from before account-specific syncing require confirmation
+before upload. Open the Field check page while online at least once so its trap
+data and app files are available offline.
 
 The map can search traps and filter by trap line, trap status, or overdue and
 attention-needed state. It can center on the device's current location and fit
@@ -84,6 +92,47 @@ Reports include date-range and trap-line/area filters, catches grouped by line
 or month, species totals, overdue and never-checked summaries, and maintenance
 follow-up. CSV and PDF exports use the selected filters. The Traps, Trap lines,
 Catches, and Users tables also include search and category filters.
+
+### Scheduled trap reminders
+
+The daily reminder command checks the latest result for each trap and includes
+traps that have never been checked, reached the due or overdue threshold, or
+need attention (for example, bait needed, sprung, damaged, missing, or under
+maintenance). It sends digest notifications only when there is something to
+follow up. Where a trap line has workers with personal ntfy
+topics, reminders are sent to those topics; workers without a personal topic
+use the deployment's global topic. The digest includes trap codes and trap-line
+names, but never GPS coordinates. A worker must subscribe to their private
+topic in ntfy to receive direct alerts.
+
+For Render, create a **Cron Job** using the same repository and Python build
+setup as the web service. Set its command to `python -m app.reminders`, and
+configure the same `DATABASE_URL`, `SECRET_KEY`, `NTFY_TOPIC`, and (if used)
+`NTFY_TOKEN` and `NTFY_SERVER` environment variables. Set `DUE_AFTER_DAYS` and
+`OVERDUE_AFTER_DAYS` only if you also change the matching thresholds in
+`frontend/admin/assets/js/config.js`. Example daily cron schedule: `0 19 * * *`
+(Render schedules use UTC; choose the UTC time appropriate for your team).
+The cron job exits with an error if the notification cannot be sent, so a failed
+run is visible in the Render job logs. Run the command once manually to confirm
+the notification topic and database connection before relying on its schedule.
+
+### Audit, imports, and QR labels
+
+The coordinator-only **Audit history** page records who changed traps, users,
+catches, tasks, and trap-line assignments, with before-and-after values where
+available. Personal notification topic values are never written to the audit
+log. The Traps page provides a CSV template and validated import; required
+columns are `trap_line` and `trap_type`. Optional columns are `code`,
+`general_area`, `exact_lat`, `exact_lng`, `is_sensitive`, and `status`. A trap
+code is generated when omitted. Trap lines are matched by name. Imports are
+atomic: any row error prevents the
+entire batch from being applied. Updating existing traps requires selecting
+the explicit update option in the import confirmation.
+
+The existing **QR codes** page prints labels that open the corresponding
+field-check form. On mobile, interactive controls have larger touch targets
+and visible keyboard focus, and errors are announced in the page for assistive
+technology.
 
 ### Render notification setup
 

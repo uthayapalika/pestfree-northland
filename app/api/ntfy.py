@@ -19,13 +19,20 @@ if not NTFY_TOPIC and not os.getenv("RENDER"):
 NTFY_TOKEN = os.getenv("NTFY_TOKEN", "")  # optional, only for protected topics
 
 
-def send_ntfy(title: str, message: str, priority: int = 3, tags: list[str] | None = None) -> None:
+def send_ntfy(
+    title: str,
+    message: str,
+    priority: int = 3,
+    tags: list[str] | None = None,
+    topic: str | None = None,
+) -> None:
     """Send one notification. Raises an error if it fails."""
-    if not NTFY_TOPIC:
+    destination_topic = topic or NTFY_TOPIC
+    if not destination_topic:
         raise RuntimeError("NTFY_TOPIC is not set")
 
     body = json.dumps({
-        "topic": NTFY_TOPIC, "title": title, "message": message,
+        "topic": destination_topic, "title": title, "message": message,
         "priority": priority, "tags": tags or [],
     }).encode("utf-8")
 

@@ -4,14 +4,14 @@
 //   - lists the API already sent (traps, lines, catches) are shown from the saved copy when offline
 //   - map tiles you have looked at are saved too
 // Change VERSION when you edit the pages/scripts so phones pick up the new files.
-const VERSION = "v4";
+const VERSION = "v5";
 const SHELL = "pestfree-shell-" + VERSION;
 const CDN = "pestfree-cdn-v1";
 const API = "pestfree-api-private-v2"; // private responses are cached per authenticated token
 const TILES = "pestfree-tiles-v1";
 const KEEP = [SHELL, CDN, API, TILES];
 
-const PAGES = ["dashboard", "check", "map", "traps", "lines", "catches", "reports", "qr", "users", "settings", "login", "register"].map((p) => p + ".html");
+const PAGES = ["dashboard", "check", "map", "traps", "lines", "catches", "reports", "qr", "users", "settings", "tasks", "sync", "audit", "login", "register"].map((p) => p + ".html");
 const FILES = [...PAGES, "manifest.json", "assets/admin.css", "assets/features.css", "assets/icons/icon-192.png", "assets/icons/icon-512.png",
   ...["config", "api", "utils", "auth", "admin", "pwa"].map((f) => "assets/js/" + f + ".js")];
 const LIBS = [

@@ -5,7 +5,19 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from app.api import admin_edit, auth, checks, ntfy, reports, trap_lines, traps, users
+from app.api import (
+    admin_edit,
+    audit,
+    auth,
+    checks,
+    imports,
+    ntfy,
+    reports,
+    tasks,
+    trap_lines,
+    traps,
+    users,
+)
 from app.config import BASE_DIR
 from app.db import models  # noqa: F401  (registers the tables)
 from app.db.database import Base, engine, upgrade_legacy_schema
@@ -41,7 +53,19 @@ def health():
 
 
 # ntfy = push notifications (alerts to the ntfy phone app)
-for module in (auth, users, trap_lines, traps, checks, reports, admin_edit, ntfy):
+for module in (
+    auth,
+    users,
+    trap_lines,
+    traps,
+    checks,
+    reports,
+    admin_edit,
+    ntfy,
+    audit,
+    tasks,
+    imports,
+):
     app.include_router(module.router)
 app.include_router(checks.catches_router)
 

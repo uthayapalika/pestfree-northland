@@ -151,6 +151,19 @@ const api = {
   addCheck: (trapId, data) => apiRequest("/traps/" + trapId + "/checks", "POST", data),
   addCatchToCheck: (checkId, species) => apiRequest("/checks/" + checkId + "/catches", "POST", { species }),
   getReport: (group = "line") => apiRequest("/reports/catches?group=" + group), // group = "line" or "month"
+  getTasks: () => apiRequest("/tasks"),
+  addTask: (data) => apiRequest("/tasks", "POST", data),
+  setTaskStatus: (id, status) => apiRequest("/tasks/" + id, "PATCH", { status }),
+  getLineAssignments: (lineId) => apiRequest("/trap-lines/" + lineId + "/assignments"),
+  getMyLineAssignments: () => apiRequest("/my/trap-line-assignments"),
+  assignLine: (lineId, userId) =>
+    apiRequest("/trap-lines/" + lineId + "/assignments", "POST", { user_id: userId }),
+  removeLineAssignment: (id) => apiRequest("/trap-line-assignments/" + id, "DELETE"),
+  setNotificationTopic: (topic) =>
+    apiRequest("/users/me/notification-topic", "PUT", { topic: topic || null }),
+  getAudit: (params = "") => apiRequest("/audit" + params),
+  importTraps: (rows, updateExisting) =>
+    apiRequest("/imports/traps", "POST", { rows, update_existing: updateExisting }),
 };
 
 // Make sure we know the user's role (older logins only saved the email).
@@ -169,6 +182,20 @@ async function ensureUser() {
 // When there is no signal, checks are saved here (on this device) and sent later.
 const Outbox = {
   all() { try { return JSON.parse(localStorage.getItem("outbox")) || []; } catch (e) { return []; } },
+  history() { try { return JSON.parse(localStorage.getItem("syncHistory")) || []; } catch (e) { return []; } },
+  record(job, status, error = "") {
+    const history = this.history();
+    history.unshift({
+      label: job.label || "Field check",
+      owner_id: job.owner_id || null,
+      queued_at: job.queued_at || null,
+      status,
+      error,
+      changed_at: new Date().toISOString(),
+    });
+    localStorage.setItem("syncHistory", JSON.stringify(history.slice(0, 200)));
+    window.dispatchEvent(new Event("sync-history-changed"));
+  },
   save(items) {
     localStorage.setItem("outbox", JSON.stringify(items));
     window.dispatchEvent(new Event("outbox-changed"));
@@ -208,12 +235,17 @@ const Outbox = {
         try {
           await apiRequest(job.path, "POST", job.body);
           result.sent++;
+          this.record(job, "uploaded");
         } catch (err) {
           if (err instanceof TypeError || String(err.message).startsWith("401")) {
+            result.failed.push({ label: job.label, error: err.message });
+            this.record(job, "failed", err.message);
             remaining.push(...items.slice(index));
             break;
           }
           result.failed.push({ label: job.label, error: err.message });
+          remaining.push(job);
+          this.record(job, "failed", err.message);
         }
       }
       this.save(remaining);
