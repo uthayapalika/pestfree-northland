@@ -62,6 +62,13 @@ def upgrade_legacy_schema(db_engine=engine) -> None:
                         "VARCHAR(30) NOT NULL DEFAULT 'active'"
                     )
                 )
+            if "inspection_interval_days" not in columns:
+                connection.execute(
+                    text(
+                        "ALTER TABLE traps ADD COLUMN inspection_interval_days "
+                        "INTEGER NOT NULL DEFAULT 14"
+                    )
+                )
         if "users" in tables:
             user_columns = {
                 column["name"] for column in inspector.get_columns("users")

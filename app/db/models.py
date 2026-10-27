@@ -46,6 +46,28 @@ class TrapModel(Base):
     exact_lng: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     is_sensitive: Mapped[bool] = mapped_column(Boolean, default=False)
     status: Mapped[str] = mapped_column(String(30), default="active")
+    inspection_interval_days: Mapped[int] = mapped_column(Integer, default=14)
+
+
+class InventoryItemModel(Base):
+    __tablename__ = "inventory_items"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(String(80))
+    category: Mapped[str] = mapped_column(String(30), default="bait")
+    unit: Mapped[str] = mapped_column(String(20), default="items")
+    quantity: Mapped[int] = mapped_column(Integer, default=0)
+    reorder_level: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+
+class InventoryMovementModel(Base):
+    __tablename__ = "inventory_movements"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    item_id: Mapped[int] = mapped_column(ForeignKey("inventory_items.id"))
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
+    quantity_change: Mapped[int] = mapped_column(Integer)
+    reason: Mapped[str] = mapped_column(String(200))
+    recorded_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
 
 class TrapMaintenanceModel(Base):

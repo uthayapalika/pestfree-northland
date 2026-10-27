@@ -14,7 +14,7 @@ const NAV = [
   ["tasks", "Field tasks", "clipboard2-check"], ["sync", "Sync status", "arrow-repeat"],
   ["map", "Map", "map"], ["traps", "Traps", "geo-alt"], ["lines", "Trap lines", "diagram-3"],
   ["catches", "Catches", "bug"], ["reports", "Reports", "bar-chart", true],
-  ["qr", "QR codes", "qr-code", true], ["audit", "Audit history", "journal-text", true],
+  ["qr", "QR codes", "qr-code", true], ["inventory", "Inventory", "box-seam", true], ["audit", "Audit history", "journal-text", true],
   ["users", "Users", "people", true], ["settings", "Settings", "gear"],
 ];
 const COORD_ONLY = NAV.filter((n) => n[3]).map((n) => n[0]);
@@ -203,9 +203,12 @@ async function dashboardPage() {
   try {
     const [traps, lines] = await Promise.all([api.getTraps(), api.getLines()]).then((r) => r.map(list));
     const checks = await loadChecks(traps);
-    let catches = [], users = [];
+    let catches = [], users = [], tasks = [];
     try { catches = list(await api.getCatches()); } catch (e) { catches = checks.filter((c) => c.status === "caught"); }
-    if (isCoord()) { try { users = list(await api.getUsers()); } catch (e) {} } // volunteers may not see users
+    if (isCoord()) {
+      try { [users, tasks] = await Promise.all([api.getUsers(), api.getTasks()]).then((r) => r.map(list)); }
+      catch (e) { try { users = list(await api.getUsers()); } catch (ignored) {} }
+    } // volunteers may not see users
 
     const code = Object.fromEntries(traps.map((t) => [t.id, t.code]));
     const lineName = Object.fromEntries(lines.map((l) => [l.id, l.name]));
@@ -245,6 +248,23 @@ async function dashboardPage() {
         ${chartCard("Catches by trap line", "cLine", "col-lg-7")}
       </div>
 
+      ${isCoord() ? `<div class="card mb-4" id="team-dashboard">
+        <div class="card-body">
+          <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-3">
+            <div><h2 class="h5 mb-1"><i class="bi bi-people me-1"></i>Team dashboard</h2>
+              <p class="text-secondary small mb-0">Worker activity, catches and assigned work.</p></div>
+            <select id="team-period" class="form-select form-select-sm" style="width:auto" aria-label="Team activity period">
+              <option value="7">Last 7 days</option><option value="30" selected>Last 30 days</option>
+              <option value="all">All time</option>
+            </select>
+          </div>
+          <div id="team-summary" class="row g-3 mb-3"></div>
+          <div class="table-responsive"><table class="table align-middle mb-0"><thead><tr>
+            <th>Worker</th><th>Checks</th><th>Catches</th><th>Open tasks</th><th>Overdue</th><th>Last active</th>
+          </tr></thead><tbody id="team-rows"></tbody></table></div>
+        </div>
+      </div>` : ""}
+
       <h2 class="h5">Recent checks</h2>
       <table class="table"><thead><tr><th>Trap</th><th>Status</th><th>Checked at</th></tr></thead>
       <tbody>${recent || "<tr><td colspan=3>No checks yet</td></tr>"}</tbody></table>`;
@@ -273,6 +293,67 @@ async function dashboardPage() {
     const health = { ok: 0, due: 0, overdue: 0, never: 0 };
     states.forEach(({ s }) => health[s.key]++);
     drawChart("cHealth", "doughnut", ["Up to date", "Due soon", "Overdue", "Never checked"], [health.ok, health.due, health.overdue, health.never], ["#3fb27f", "#e0a526", "#e5534b", "#8b9a93"]);
+
+    if (isCoord()) {
+      const teamMembers = users.filter((u) => u.role === "volunteer" || u.role === "field_worker");
+      const renderTeam = () => {
+        const period = document.getElementById("team-period")?.value || "30";
+        const cutoff = period === "all" ? null : new Date(Date.now() - Number(period) * 86400000);
+        const periodChecks = checks.filter((check) => {
+          const date = parseDate(check.checked_at);
+          return !cutoff || (date && date >= cutoff);
+        });
+        const periodCatches = catches.filter((item) => {
+          const date = parseDate(item.recorded_at);
+          return !cutoff || (date && date >= cutoff);
+        });
+        const now = new Date();
+        const openTasks = tasks.filter((task) => task.status === "open");
+        const overdueTasks = openTasks.filter((task) => {
+          if (!task.due_at) return false;
+          const due = parseDate(task.due_at);
+          return due && due < now;
+        });
+
+        document.getElementById("team-summary").innerHTML =
+          card("Active workers", teamMembers.filter((u) => periodChecks.some((check) => check.user_id === u.id)).length) +
+          card("Checks", periodChecks.length) + card("Catches", periodCatches.length) +
+          card("Open tasks", openTasks.length) + card("Overdue tasks", overdueTasks.length, overdueTasks.length ? "text-danger" : "");
+
+        const checkCounts = count(periodChecks, "user_id");
+        const catchesByUser = periodCatches.reduce((totals, item) => {
+          const check = checks.find((entry) => entry.id === item.check_id);
+          if (check) totals[check.user_id] = (totals[check.user_id] || 0) + 1;
+          return totals;
+        }, {});
+        const taskCounts = openTasks.reduce((totals, task) => {
+          totals[task.assigned_to] = (totals[task.assigned_to] || 0) + 1;
+          return totals;
+        }, {});
+        const overdueCounts = overdueTasks.reduce((totals, task) => {
+          totals[task.assigned_to] = (totals[task.assigned_to] || 0) + 1;
+          return totals;
+        }, {});
+        const lastActive = periodChecks.reduce((latest, check) => {
+          const current = latest[check.user_id];
+          if (!current || String(check.checked_at).localeCompare(String(current)) > 0) latest[check.user_id] = check.checked_at;
+          return latest;
+        }, {});
+
+        document.getElementById("team-rows").innerHTML = teamMembers
+          .map((user) => ({ user, checks: checkCounts[user.id] || 0, catches: catchesByUser[user.id] || 0 }))
+          .sort((a, b) => b.checks - a.checks || b.catches - a.catches || a.user.name.localeCompare(b.user.name))
+          .map(({ user, checks: checkCount, catches: catchCount }) => `<tr>
+            <td><b>${esc(user.name)}</b><div class="text-secondary small">${esc(user.role === "field_worker" ? "Field worker" : "Volunteer")}</div></td>
+            <td>${checkCount}</td><td>${catchCount}</td>
+            <td>${taskCounts[user.id] || 0}</td>
+            <td>${overdueCounts[user.id] ? `<span class="badge text-bg-danger">${overdueCounts[user.id]}</span>` : "0"}</td>
+            <td class="text-secondary">${lastActive[user.id] ? esc(String(lastActive[user.id]).replace("T", " ").slice(0, 16)) : "Never"}</td>
+          </tr>`).join("") || '<tr><td colspan="6" class="text-secondary">No workers have been created yet.</td></tr>';
+      };
+      document.getElementById("team-period").onchange = renderTeam;
+      renderTeam();
+    }
   } catch (err) { showError(err); }
 }
 
@@ -620,7 +701,7 @@ async function mapPage() {
 
 // ================= DROPDOWN CHOICES =================
 // Friendlier labels for some fields.
-const LABELS = { trap_line_id: "Trap line", trap_id: "Trap", trap_code: "Trap", trap_line: "Trap line", trap_type: "Trap type", recorded_by: "Recorded by", recorded_at: "Recorded at", performed_at: "Maintenance date (optional)", is_sensitive: "Sensitive location?", species: "Species caught", notes: "Notes (optional)", checked_at: "Checked at (optional)", can_view_exact_location: "Can see exact locations?", status: "Trap status" };
+const LABELS = { trap_line_id: "Trap line", trap_id: "Trap", trap_code: "Trap", trap_line: "Trap line", trap_type: "Trap type", recorded_by: "Recorded by", recorded_at: "Recorded at", performed_at: "Maintenance date (optional)", is_sensitive: "Sensitive location?", inspection_interval_days: "Inspection every (days)", next_due_at: "Next inspection due", species: "Species caught", notes: "Notes (optional)", checked_at: "Checked at (optional)", can_view_exact_location: "Can see exact locations?", status: "Trap status" };
 
 // Fixed lists. Add or remove words here to change what users can pick.
 const opt = (arr) => arr.map((v) => ({ value: v, label: v }));
@@ -661,7 +742,7 @@ async function loadChoices(fields) {
 const lineNames = async () => Object.fromEntries(list(await api.getLines()).map((l) => [l.id, l.name]));
 
 const CRUD = {
-  traps:   { title: "Traps",      one: "trap",      fields: ["code"], editFields: ["trap_type", "status", "is_sensitive", "exact_lat", "exact_lng"], addFields: ["trap_line_id", "trap_type", "status", "is_sensitive", "exact_lat", "exact_lng"],  load: api.getTraps,   add: api.addTrap,   update: api.updateTrap,   remove: api.deleteTrap,
+  traps:   { title: "Traps",      one: "trap",      fields: ["code", "inspection_interval_days", "next_due_at", "check_state"], editFields: ["trap_type", "status", "inspection_interval_days", "is_sensitive", "exact_lat", "exact_lng"], addFields: ["trap_line_id", "trap_type", "status", "inspection_interval_days", "is_sensitive", "exact_lat", "exact_lng"],  load: api.getTraps,   add: api.addTrap,   update: api.updateTrap,   remove: api.deleteTrap,
              // extra read-only columns: line name + overdue status
              decorate: async (rows) => { const ln = await lineNames(); rows.forEach((r) => { r.trap_line = ln[r.trap_line_id] || ""; r.check_state = trapState(r).label; }); } },
   lines:   { title: "Trap lines", one: "trap line", fields: ["name", "general_area"],          load: api.getLines,   add: api.addLine,   update: api.updateLine,   remove: api.deleteLine },
@@ -711,8 +792,9 @@ function setupTrapCsvImport() {
       exact_lng: "",
       is_sensitive: "false",
       status: "active",
+      inspection_interval_days: 14,
     }],
-    ["trap_line", "code", "trap_type", "general_area", "exact_lat", "exact_lng", "is_sensitive", "status"]
+    ["trap_line", "code", "trap_type", "general_area", "exact_lat", "exact_lng", "is_sensitive", "status", "inspection_interval_days"]
   );
   fileInput.onchange = async () => {
     const file = fileInput.files[0];
@@ -723,7 +805,7 @@ function setupTrapCsvImport() {
       if (parsed.length < 2) throw new Error("The CSV must include headers and at least one trap row.");
       const headers = parsed[0].map((header) => header.trim().toLowerCase());
       const required = ["trap_line", "trap_type"];
-      const allowed = new Set(["trap_line", "code", "trap_type", "general_area", "exact_lat", "exact_lng", "is_sensitive", "status"]);
+      const allowed = new Set(["trap_line", "code", "trap_type", "general_area", "exact_lat", "exact_lng", "is_sensitive", "status", "inspection_interval_days"]);
       const duplicates = headers.filter((header, index) => headers.indexOf(header) !== index);
       if (duplicates.length) throw new Error("Duplicate CSV column(s): " + [...new Set(duplicates)].join(", "));
       const unknown = headers.filter((header) => !allowed.has(header));
@@ -752,6 +834,10 @@ function setupTrapCsvImport() {
           throw new Error(`Row ${rowIndex + 2}: sensitive traps need both exact_lat and exact_lng.`);
         }
         if (row.status === "") delete row.status;
+        if (row.inspection_interval_days === undefined || row.inspection_interval_days === "") row.inspection_interval_days = 14;
+        else if (!Number.isInteger(Number(row.inspection_interval_days)) || Number(row.inspection_interval_days) < 1 || Number(row.inspection_interval_days) > 365) {
+          throw new Error(`Row ${rowIndex + 2}: inspection_interval_days must be a whole number from 1 to 365.`);
+        } else row.inspection_interval_days = Number(row.inspection_interval_days);
         return row;
       });
       const confirmation = await Box.fire({
@@ -823,6 +909,9 @@ async function tablePage() {
     const cell = (f, r) => {
       if (f === "check_state") return stateBadge(r);
       if (f === "recorded_at") return esc(formatRecordedAt(r[f]));
+      if (f === "next_due_at") {
+        return r[f] ? esc(formatRecordedAt(r[f])) : '<span class="text-secondary">Never checked</span>';
+      }
       if (f === "status") return esc(String(r[f] || "active").replace(/_/g, " "));
       return esc(r[f]);
     };
@@ -1010,7 +1099,7 @@ async function tablePage() {
       let choices;
       try { choices = await loadChoices(addFields); } catch (err) { return fail(err); }
       const saved = await openForm("Add " + cfg.one, addFields,
-        cfg.addFields ? { is_sensitive: false, status: "active" } : PAGE === "catches" ? { checked_at: new Date().toISOString().slice(0, 16) } : {},
+        cfg.addFields ? { is_sensitive: false, status: "active", inspection_interval_days: 14 } : PAGE === "catches" ? { checked_at: new Date().toISOString().slice(0, 16) } : {},
         async (data) => { await cfg.add(data); success("Added successfully"); }, choices);
       if (saved) tablePage(); // reload the table
     };
@@ -1341,8 +1430,11 @@ async function checkPage() {
     trap: null, status: "", species: "", notes: "", q: "", near: false, saving: false,
     nearMap: false, nearMessage: "", userPoint: null,
   };
-  const preset = new URLSearchParams(location.search).get("trap"); // from a QR code
-  if (preset) S.trap = traps.find((t) => String(t.id) === preset) || null;
+  const preset = new URLSearchParams(location.search).get("trap")?.trim(); // from a QR code
+  S.trap = preset ? traps.find((t) => String(t.id) === preset) || null : null;
+  S.qrMessage = preset && !S.trap
+    ? "This QR code does not match a trap you can access. Choose a trap below, or ask a coordinator to check the code."
+    : "";
   const box = document.getElementById("body");
   let nearbyMap;
 
@@ -1414,6 +1506,7 @@ async function checkPage() {
     let html = pending ? `<div class="alert alert-warning d-flex justify-content-between align-items-center">
       <span>${pending} check${pending > 1 ? "s" : ""} waiting to upload</span><button class="btn btn-sm btn-warning" data-act="sync">Sync now</button></div>` : "";
     if (!S.trap) {
+      if (S.qrMessage) html += `<div class="alert alert-warning" role="alert">${esc(S.qrMessage)}</div>`;
       html += `<div class="d-grid gap-2 mb-3">
           <button class="btn btn-primary btn-lg py-3" data-act="near"><i class="bi bi-crosshair"></i> Find nearest traps</button>
           <input id="q" class="form-control form-control-lg" placeholder="Search by trap code or line" value="${esc(S.q)}"></div>
@@ -1472,7 +1565,7 @@ async function checkPage() {
     const b = e.target.closest("[data-act]");
     if (!b) return;
     const act = b.dataset.act;
-    if (act === "pick") { S.trap = traps.find((t) => String(t.id) === b.dataset.id); render(); }
+    if (act === "pick") { S.trap = traps.find((t) => String(t.id) === b.dataset.id); S.qrMessage = ""; render(); }
     else if (act === "back") { Object.assign(S, { trap: null, status: "", species: "" }); render(); }
     else if (act === "status") { S.status = b.dataset.v; if (S.status !== "caught") S.species = ""; render(); }
     else if (act === "species") { S.species = b.dataset.v; render(); }
@@ -1534,12 +1627,14 @@ async function reportsPage(group = "line") {
       <button id="pdfRep" class="btn btn-sm btn-outline-secondary"><i class="bi bi-file-earmark-pdf"></i> Export report PDF</button>
       <button id="csvTraps" class="btn btn-sm btn-outline-secondary"><i class="bi bi-download"></i> Export filtered traps CSV</button>
       <button id="pdfTraps" class="btn btn-sm btn-outline-secondary"><i class="bi bi-file-earmark-pdf"></i> Export filtered traps PDF</button>
+      <button id="csvLinePerformance" class="btn btn-sm btn-outline-secondary"><i class="bi bi-download"></i> Export trap-line performance CSV</button>
     </div>
     <div id="reportResults" aria-live="polite">Loading report...</div>`);
   try {
     const [traps, lines, catches] = (await Promise.all([
       api.getTraps(), api.getLines(), api.getCatches(),
     ])).map(list);
+    const checks = await loadChecks(traps);
     const lineName = Object.fromEntries(lines.map((line) => [line.id, line.name]));
     const lineArea = Object.fromEntries(lines.map((line) => [line.id, line.general_area]));
     document.getElementById("reportLine").insertAdjacentHTML("beforeend",
@@ -1563,12 +1658,18 @@ async function reportsPage(group = "line") {
       const to = document.getElementById("reportTo").value;
       const lineId = document.getElementById("reportLine").value;
       const selectedTraps = traps.filter((trap) => !lineId || String(trap.trap_line_id) === lineId);
+      const trapInLine = new Set(selectedTraps.map((trap) => String(trap.id)));
       const selectedCatches = catches.filter((item) => {
         const day = localDate(item.recorded_at);
         return (!lineId || String(item.trap_line_id) === lineId)
           && (!from || day >= from) && (!to || day <= to);
       });
-      return { from, to, selectedTraps, selectedCatches };
+      const selectedChecks = checks.filter((item) => {
+        const day = localDate(item.checked_at);
+        return trapInLine.has(String(item.trap_id))
+          && (!from || day >= from) && (!to || day <= to);
+      });
+      return { from, to, selectedTraps, selectedCatches, selectedChecks };
     };
     const dateTime = (value) => {
       const date = parseDate(value);
@@ -1584,16 +1685,16 @@ async function reportsPage(group = "line") {
       { key: "last_checked_at", label: "Last checked" }, { key: "check_state", label: "Check status" },
     ];
     const render = () => {
-      const { from, to, selectedTraps, selectedCatches } = filterData();
+      const { from, to, selectedTraps, selectedCatches, selectedChecks } = filterData();
       if (from && to && from > to) {
         document.getElementById("reportResults").innerHTML =
           "<div class='alert alert-warning'>The start date must be on or before the end date.</div>";
-        ["csvRep", "pdfRep", "csvTraps", "pdfTraps"].forEach((id) => {
+        ["csvRep", "pdfRep", "csvTraps", "pdfTraps", "csvLinePerformance"].forEach((id) => {
           document.getElementById(id).disabled = true;
         });
         return;
       }
-      ["csvRep", "pdfRep", "csvTraps", "pdfTraps"].forEach((id) => {
+      ["csvRep", "pdfRep", "csvTraps", "pdfTraps", "csvLinePerformance"].forEach((id) => {
         document.getElementById(id).disabled = false;
       });
 
@@ -1614,6 +1715,38 @@ async function reportsPage(group = "line") {
         <td>${esc((trap.status || "active").replace(/_/g, " "))}</td>
         <td>${esc((trap.last_status || "none").replace(/_/g, " "))}</td>
         <td>${esc(ago(trap.last_checked_at))}</td></tr>`).join("");
+      const lineFilter = document.getElementById("reportLine").value;
+      const performanceLines = lines.filter((line) => !lineFilter || String(line.id) === lineFilter);
+      const performanceRows = performanceLines.map((line) => {
+        const lineTraps = selectedTraps.filter((trap) => trap.trap_line_id === line.id);
+        const trapIds = new Set(lineTraps.map((trap) => String(trap.id)));
+        const lineChecks = selectedChecks.filter((check) => trapIds.has(String(check.trap_id)));
+        const checkedTrapIds = new Set(lineChecks.map((check) => String(check.trap_id)));
+        const lineCatches = selectedCatches.filter((item) => String(item.trap_line_id) === String(line.id));
+        const caughtChecks = lineChecks.filter((check) => check.status === "caught").length;
+        const percent = (numerator, denominator) => denominator
+          ? `${Math.round(numerator * 100 / denominator)}%` : "0%";
+        const latestCheck = [...lineChecks].sort((a, b) =>
+          String(b.checked_at).localeCompare(String(a.checked_at)))[0];
+        return {
+          line: line.name,
+          area: line.general_area,
+          traps: lineTraps.length,
+          checks: lineChecks.length,
+          checked_traps: checkedTrapIds.size,
+          coverage: percent(checkedTrapIds.size, lineTraps.length),
+          catches: lineCatches.length,
+          catches_per_trap: lineTraps.length ? (lineCatches.length / lineTraps.length).toFixed(1) : "0.0",
+          catch_success: percent(caughtChecks, lineChecks.length),
+          last_checked: latestCheck ? dateTime(latestCheck.checked_at) : "Not checked",
+        };
+      }).filter((row) => row.traps > 0)
+        .sort((a, b) => b.catches - a.catches || b.checks - a.checks || a.line.localeCompare(b.line));
+      const performanceHtml = performanceRows.map((row) => `<tr>
+        <td><b>${esc(row.line)}</b></td><td>${esc(row.area)}</td><td>${row.traps}</td><td>${row.checks}</td>
+        <td>${row.checked_traps}</td><td>${row.coverage}</td><td>${row.catches}</td>
+        <td>${row.catches_per_trap}</td><td>${row.catch_success}</td><td>${esc(row.last_checked)}</td>
+      </tr>`).join("");
       const trapRows = selectedTraps.map((trap) => ({
         code: trap.code,
         trap_line: lineName[trap.trap_line_id] || "",
@@ -1661,8 +1794,22 @@ async function reportsPage(group = "line") {
             <div class="table-responsive"><table class="table"><thead><tr><th>Trap</th><th>Trap line</th><th>Area</th><th>Trap status</th><th>Last result</th><th>Last checked</th></tr></thead>
             <tbody>${maintenanceRows || "<tr><td colspan='6'>No maintenance needs found.</td></tr>"}</tbody></table></div>
           </div>
+          <div class="col-12"><h2 class="h5">Trap-line performance</h2>
+            <p class="text-secondary small">Coverage is the percentage of traps checked at least once. Catch success is the percentage of checks that found a catch.</p>
+            <div class="table-responsive"><table class="table table-hover align-middle"><thead><tr>
+              <th>Trap line</th><th>Area</th><th>Traps</th><th>Checks</th><th>Checked traps</th><th>Coverage</th>
+              <th>Catches</th><th>Catches/trap</th><th>Catch success</th><th>Last checked</th>
+            </tr></thead><tbody>${performanceHtml || "<tr><td colspan='10'>No trap-line activity found for this filter.</td></tr>"}</tbody></table></div>
+          </div>
         </div>`;
 
+      const performanceColumns = [
+        { key: "line", label: "Trap line" }, { key: "area", label: "Area" },
+        { key: "traps", label: "Traps" }, { key: "checks", label: "Checks" },
+        { key: "checked_traps", label: "Checked traps" }, { key: "coverage", label: "Coverage" },
+        { key: "catches", label: "Catches" }, { key: "catches_per_trap", label: "Catches/trap" },
+        { key: "catch_success", label: "Catch success" }, { key: "last_checked", label: "Last checked" },
+      ];
       const catchGroupRows = Object.entries(catchGroups).map(([label, total]) => ({
         label, catches: total,
       }));
@@ -1677,11 +1824,15 @@ async function reportsPage(group = "line") {
         { title: "Catches by species", columns: [{ key: "label", label: "Species" }, { key: "total", label: "Total" }], rows: countRows(species) },
         { title: "Traps by last check result", columns: [{ key: "label", label: "Result" }, { key: "total", label: "Total" }], rows: countRows(lastStatus) },
         { title: "Traps by check schedule", columns: [{ key: "label", label: "Schedule" }, { key: "total", label: "Total" }], rows: countRows(checkStatus) },
+        { title: "Trap-line performance", columns: performanceColumns, rows: performanceRows },
         { title: "Maintenance and follow-up", columns: trapColumns, rows: maintenanceExportRows },
       ]);
       document.getElementById("csvTraps").onclick = () => trapRows.length
         ? downloadCSV("filtered-traps.csv", trapRows, trapColumns.map((column) => column.key))
         : fail(new Error("There are no traps in this filter."));
+      document.getElementById("csvLinePerformance").onclick = () => performanceRows.length
+        ? downloadCSV("trap-line-performance.csv", performanceRows, performanceColumns.map((column) => column.key))
+        : fail(new Error("There are no trap-line activity rows in this filter."));
       document.getElementById("pdfTraps").onclick = () => trapRows.length
         ? exportPDF("Filtered traps", [{ columns: trapColumns, rows: trapRows }])
         : fail(new Error("There are no traps in this filter."));
@@ -1692,6 +1843,118 @@ async function reportsPage(group = "line") {
     });
     render();
   } catch (err) { showError(err); }
+}
+
+
+// ================= INVENTORY =================
+function inventoryForm(item = null) {
+  const category = item?.category || "bait";
+  return `
+    <div class="text-start">
+      <label class="form-label" for="inventory-name">Item name</label>
+      <input id="inventory-name" class="form-control mb-3" value="${esc(item?.name || "")}" maxlength="80" placeholder="e.g. DOC 200 traps">
+      <label class="form-label" for="inventory-category">Category</label>
+      <select id="inventory-category" class="form-select mb-3">
+        ${["bait", "equipment", "maintenance", "other"].map((value) => `<option value="${value}" ${value === category ? "selected" : ""}>${value[0].toUpperCase() + value.slice(1)}</option>`).join("")}
+      </select>
+      <label class="form-label" for="inventory-unit">Unit</label>
+      <input id="inventory-unit" class="form-control mb-3" value="${esc(item?.unit || "")}" maxlength="20" placeholder="e.g. kg, boxes, units">
+      ${item ? "" : `<label class="form-label" for="inventory-quantity">Starting quantity</label>
+        <input id="inventory-quantity" class="form-control mb-3" type="number" min="0" max="1000000" value="0">`}
+      <label class="form-label" for="inventory-reorder">Reorder level</label>
+      <input id="inventory-reorder" class="form-control" type="number" min="0" max="1000000" value="${item?.reorder_level ?? 0}">
+    </div>`;
+}
+
+async function openInventoryForm(item = null) {
+  const result = await Box.fire({
+    title: item ? "Edit inventory item" : "Add inventory item",
+    html: inventoryForm(item),
+    width: 500,
+    showCancelButton: true,
+    confirmButtonText: item ? "Save item" : "Add item",
+    didOpen: () => document.getElementById("inventory-name")?.focus(),
+    preConfirm: () => {
+      const name = document.getElementById("inventory-name").value.trim();
+      const unit = document.getElementById("inventory-unit").value.trim();
+      const quantityInput = document.getElementById("inventory-quantity");
+      const reorder = Number(document.getElementById("inventory-reorder").value);
+      if (name.length < 2) return Swal.showValidationMessage("Enter an item name of at least 2 characters.");
+      if (!unit) return Swal.showValidationMessage("Enter a unit.");
+      if (!Number.isInteger(reorder) || reorder < 0 || reorder > 1000000) return Swal.showValidationMessage("Reorder level must be a whole number from 0 to 1,000,000.");
+      const quantity = quantityInput ? Number(quantityInput.value) : 0;
+      if (quantityInput && (!Number.isInteger(quantity) || quantity < 0 || quantity > 1000000)) return Swal.showValidationMessage("Starting quantity must be a whole number from 0 to 1,000,000.");
+      return { name, category: document.getElementById("inventory-category").value, unit, quantity, reorder_level: reorder };
+    },
+  });
+  if (!result.isConfirmed) return false;
+  if (item) await api.updateInventory(item.id, result.value);
+  else await api.addInventory(result.value);
+  return true;
+}
+
+async function adjustInventory(item) {
+  const result = await Box.fire({
+    title: `Adjust ${item.name}`,
+    html: `<div class="text-start"><p class="small text-secondary">Current stock: <b>${item.quantity} ${esc(item.unit)}</b></p>
+      <label class="form-label" for="stock-change">Stock change</label>
+      <input id="stock-change" class="form-control mb-3" type="number" min="-1000000" max="1000000" step="1" placeholder="Use a negative number for use/issue">
+      <label class="form-label" for="stock-reason">Reason</label>
+      <input id="stock-reason" class="form-control" maxlength="200" placeholder="e.g. Monthly bait issue">
+    </div>`,
+    width: 500, showCancelButton: true, confirmButtonText: "Apply adjustment",
+    preConfirm: () => {
+      const quantity_change = Number(document.getElementById("stock-change").value);
+      const reason = document.getElementById("stock-reason").value.trim();
+      if (!Number.isInteger(quantity_change) || quantity_change === 0) return Swal.showValidationMessage("Enter a non-zero whole-number stock change.");
+      if (item.quantity + quantity_change < 0) return Swal.showValidationMessage("Stock cannot fall below zero.");
+      if (reason.length < 2) return Swal.showValidationMessage("Enter a reason of at least 2 characters.");
+      return { quantity_change, reason };
+    },
+  });
+  if (!result.isConfirmed) return false;
+  await api.moveInventory(item.id, result.value);
+  return true;
+}
+
+async function inventoryPage() {
+  shell("Bait & maintenance inventory", `
+    <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-3">
+      <p class="text-secondary mb-0">Track bait, equipment and maintenance stock across the project.</p>
+      <button id="add-inventory" class="btn btn-primary"><i class="bi bi-plus-lg"></i> Add item</button>
+    </div>
+    <div id="inventory-summary" class="row g-3 mb-4"></div>
+    <div class="card"><div class="card-body p-0"><div id="inventory-list"><p class="p-4 text-secondary mb-0">Loading inventory...</p></div></div></div>`);
+  const render = async () => {
+    try {
+      const items = list(await api.getInventory());
+      const reorderCount = items.filter((item) => item.needs_reorder).length;
+      document.getElementById("inventory-summary").innerHTML = `
+        <div class="col-6 col-md-3"><div class="card h-100"><div class="card-body"><span class="text-secondary small">Item types</span><h3 class="mb-0">${items.length}</h3></div></div></div>
+        <div class="col-6 col-md-3"><div class="card h-100"><div class="card-body"><span class="text-secondary small">Need reorder</span><h3 class="mb-0 ${reorderCount ? "text-warning" : ""}">${reorderCount}</h3></div></div></div>`;
+      document.getElementById("inventory-list").innerHTML = items.length ? `
+        <div class="table-responsive"><table class="table align-middle mb-0">
+          <thead><tr><th>Item</th><th>Category</th><th>In stock</th><th>Reorder level</th><th>Status</th><th class="text-end">Actions</th></tr></thead>
+          <tbody>${items.map((item) => `<tr>
+            <td><b>${esc(item.name)}</b></td><td>${esc(item.category)}</td>
+            <td>${item.quantity} ${esc(item.unit)}</td><td>${item.reorder_level} ${esc(item.unit)}</td>
+            <td>${item.needs_reorder ? '<span class="badge text-bg-warning">Reorder</span>' : '<span class="badge text-bg-success">OK</span>'}</td>
+            <td class="text-end text-nowrap"><button class="btn btn-sm btn-outline-primary" data-inventory-adjust="${item.id}"><i class="bi bi-plus-slash-minus"></i> Adjust</button>
+            <button class="btn btn-sm btn-outline-secondary ms-1" data-inventory-edit="${item.id}"><i class="bi bi-pencil"></i></button></td>
+          </tr>`).join("")}</tbody></table></div>`
+        : '<p class="p-4 text-secondary mb-0">No inventory items yet. Add bait, equipment or maintenance stock to begin.</p>';
+      document.querySelectorAll("[data-inventory-edit]").forEach((button) => button.onclick = async () => {
+        try { const item = items.find((candidate) => candidate.id === Number(button.dataset.inventoryEdit)); if (await openInventoryForm(item)) { success("Inventory item saved"); await render(); } } catch (error) { fail(error); }
+      });
+      document.querySelectorAll("[data-inventory-adjust]").forEach((button) => button.onclick = async () => {
+        try { const item = items.find((candidate) => candidate.id === Number(button.dataset.inventoryAdjust)); if (await adjustInventory(item)) { success("Stock adjusted"); await render(); } } catch (error) { fail(error); }
+      });
+    } catch (error) { fail(error); }
+  };
+  document.getElementById("add-inventory").onclick = async () => {
+    try { if (await openInventoryForm()) { success("Inventory item added"); await render(); } } catch (error) { fail(error); }
+  };
+  await render();
 }
 
 
@@ -1767,7 +2030,7 @@ async function settingsPage() {
 
 // ================= START =================
 // Pick the right page function (after we know the user's role).
-const PAGES = { dashboard: dashboardPage, map: mapPage, reports: reportsPage, settings: settingsPage, check: checkPage, qr: qrPage, tasks: tasksPage, sync: syncPage, audit: auditPage };
+const PAGES = { dashboard: dashboardPage, map: mapPage, reports: reportsPage, inventory: inventoryPage, settings: settingsPage, check: checkPage, qr: qrPage, tasks: tasksPage, sync: syncPage, audit: auditPage };
 (async () => {
   me = await ensureUser();
   if (isFieldWorker() && !["check", "tasks", "sync"].includes(PAGE)) {

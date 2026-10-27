@@ -88,6 +88,7 @@ class TrapRepository:
             exact_lng=row.exact_lng,
             is_sensitive=row.is_sensitive,
             status=row.status,
+            inspection_interval_days=row.inspection_interval_days,
         )
 
     def add(
@@ -100,6 +101,7 @@ class TrapRepository:
         exact_lng,
         is_sensitive,
         status="active",
+        inspection_interval_days=14,
     ) -> Trap:
         row = TrapModel(
             trap_line_id=trap_line_id,
@@ -110,6 +112,7 @@ class TrapRepository:
             exact_lng=exact_lng,
             is_sensitive=is_sensitive,
             status=status,
+            inspection_interval_days=inspection_interval_days,
         )
         self.db.add(row)
         self.db.flush()

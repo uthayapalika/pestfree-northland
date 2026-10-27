@@ -1,4 +1,4 @@
-from datetime import timezone
+from datetime import timedelta, timezone
 
 from app.db import models
 from sqlalchemy.orm import Session
@@ -32,6 +32,10 @@ class TrapService:
 
     def _view(self, trap: Trap, user: UserModel, general_area: str) -> dict:
         last = self.checks.last_for_trap(trap.id)
+        next_due_at = (
+            last.checked_at + timedelta(days=trap.inspection_interval_days)
+            if last else None
+        )
         return {
             "id": trap.id,
             "trap_line_id": trap.trap_line_id,
@@ -41,6 +45,8 @@ class TrapService:
             "general_area": general_area,
             "is_sensitive": trap.is_sensitive,
             "status": trap.status,
+            "inspection_interval_days": trap.inspection_interval_days,
+            "next_due_at": next_due_at,
             **trap.visible_location(can_view_exact(user)),
             "last_status": last.status if last else None,
             "last_checked_at": last.checked_at if last else None,
@@ -63,6 +69,7 @@ class TrapService:
             data.exact_lng,
             data.is_sensitive,
             data.status or "active",
+            data.inspection_interval_days,
         )
         return self._view(trap, user, line.general_area)
 

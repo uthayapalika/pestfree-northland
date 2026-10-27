@@ -138,6 +138,7 @@ class TrapImportRow(BaseModel):
     exact_lng: Optional[float] = Field(default=None, ge=-180, le=180)
     is_sensitive: bool = False
     status: TrapStatus = "active"
+    inspection_interval_days: int = Field(default=14, ge=1, le=365)
 
 
 class TrapImportIn(BaseModel):
@@ -159,6 +160,7 @@ class TrapIn(BaseModel):
     exact_lng: Optional[float] = Field(default=None, ge=-180, le=180)
     is_sensitive: bool = False
     status: Optional[TrapStatus] = None
+    inspection_interval_days: int = Field(default=14, ge=1, le=365)
 
 
 class TrapOut(BaseModel):
@@ -170,10 +172,36 @@ class TrapOut(BaseModel):
     general_area: str
     is_sensitive: bool
     status: TrapStatus = "active"
+    inspection_interval_days: int
     exact_lat: Optional[float]
     exact_lng: Optional[float]
     last_status: Optional[CheckStatus] = None
     last_checked_at: Optional[datetime] = None
+
+
+class InventoryItemIn(BaseModel):
+    name: str = Field(min_length=2, max_length=80)
+    category: Literal["bait", "equipment", "maintenance", "other"] = "other"
+    unit: str = Field(min_length=1, max_length=20)
+    quantity: int = Field(default=0, ge=0, le=1000000)
+    reorder_level: int = Field(default=0, ge=0, le=1000000)
+
+
+class InventoryMovementIn(BaseModel):
+    quantity_change: int = Field(ge=-1000000, le=1000000)
+    reason: str = Field(min_length=2, max_length=200)
+
+
+class InventoryItemOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    name: str
+    category: str
+    unit: str
+    quantity: int
+    reorder_level: int
+    needs_reorder: bool
+    created_at: datetime
 
 
 class CheckIn(BaseModel):
