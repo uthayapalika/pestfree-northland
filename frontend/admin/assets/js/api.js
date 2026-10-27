@@ -164,6 +164,10 @@ const api = {
   getAudit: (params = "") => apiRequest("/audit" + params),
   importTraps: (rows, updateExisting) =>
     apiRequest("/imports/traps", "POST", { rows, update_existing: updateExisting }),
+  getInventory: () => apiRequest("/inventory"),
+  addInventory: (data) => apiRequest("/inventory", "POST", data),
+  updateInventory: (id, data) => apiRequest("/inventory/" + id, "PUT", data),
+  moveInventory: (id, data) => apiRequest("/inventory/" + id + "/movements", "POST", data),
 };
 
 // Make sure we know the user's role (older logins only saved the email).

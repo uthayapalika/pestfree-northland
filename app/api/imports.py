@@ -84,6 +84,7 @@ def import_traps(
                 trap.exact_lng = row.exact_lng
                 trap.is_sensitive = row.is_sensitive
                 trap.status = row.status
+                trap.inspection_interval_days = row.inspection_interval_days
                 after = trap_snapshot(trap)
                 record_audit(
                     db, actor, "updated", "trap", trap.id, before, after
@@ -100,6 +101,7 @@ def import_traps(
                 exact_lng=row.exact_lng,
                 is_sensitive=row.is_sensitive,
                 status=row.status,
+                inspection_interval_days=row.inspection_interval_days,
             )
             db.add(new_trap)
             db.flush()

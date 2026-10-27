@@ -14,6 +14,7 @@ class Trap(ABC):
         exact_lng,
         is_sensitive,
         status="active",
+        inspection_interval_days=14,
     ):
         self.id = id
         self.code = code
@@ -21,6 +22,7 @@ class Trap(ABC):
         self.general_area = general_area
         self.is_sensitive = is_sensitive
         self.status = status
+        self.inspection_interval_days = inspection_interval_days
         self.__lat = exact_lat  # private: name-mangled (encapsulation)
         self.__lng = exact_lng
 

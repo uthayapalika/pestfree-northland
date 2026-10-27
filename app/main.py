@@ -11,6 +11,7 @@ from app.api import (
     auth,
     checks,
     imports,
+    inventory,
     ntfy,
     reports,
     tasks,
@@ -65,6 +66,7 @@ for module in (
     audit,
     tasks,
     imports,
+    inventory,
 ):
     app.include_router(module.router)
 app.include_router(checks.catches_router)
