@@ -20,12 +20,6 @@ SECRET_KEY = _secret or "dev-only-secret-change-me-before-sharing-123"
 ALGORITHM = "HS256"
 TOKEN_EXPIRE_MINUTES = 60 * 8
 
-_registration_default = "false" if IS_RENDER else "true"
-_registration_setting = os.getenv("PUBLIC_REGISTRATION_ENABLED", _registration_default).lower()
-if _registration_setting not in {"true", "false"}:
-    raise RuntimeError("PUBLIC_REGISTRATION_ENABLED must be 'true' or 'false'.")
-PUBLIC_REGISTRATION_ENABLED = _registration_setting == "true"
-
 DUE_AFTER_DAYS = int(os.getenv("DUE_AFTER_DAYS", "14"))
 OVERDUE_AFTER_DAYS = int(os.getenv("OVERDUE_AFTER_DAYS", "30"))
 if not 0 < DUE_AFTER_DAYS < OVERDUE_AFTER_DAYS:
