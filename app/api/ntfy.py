@@ -7,7 +7,7 @@ import urllib.request
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 
-from app.api.deps import get_current_user, require_coordinator
+from app.api.deps import require_coordinator, require_non_field_worker
 from app.errors import ServiceError
 
 # Use a local-only fallback; hosted deployments must supply their own topic.
@@ -57,8 +57,8 @@ class TestIn(BaseModel):
 
 
 @router.get("/info")
-def info(_=Depends(get_current_user)):
-    """Which topic to subscribe to. Any logged-in user can see it."""
+def info(_=Depends(require_non_field_worker)):
+    """Which topic to subscribe to. Volunteers and coordinators can see it."""
     if not NTFY_TOPIC:
         raise ServiceError("NTFY_TOPIC is not set on the server.", 500)
     return {"server": NTFY_SERVER, "topic": NTFY_TOPIC, "url": f"{NTFY_SERVER}/{NTFY_TOPIC}"}

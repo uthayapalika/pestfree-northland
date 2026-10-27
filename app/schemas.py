@@ -3,8 +3,12 @@ from typing import Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
-Role = Literal["volunteer", "coordinator"]
+Role = Literal["volunteer", "field_worker", "coordinator"]
+PublicRole = Literal["volunteer", "coordinator"]
 CheckStatus = Literal["empty", "caught", "bait_needed", "sprung"]
+TrapStatus = Literal[
+    "active", "needs_bait", "damaged", "missing", "under_maintenance"
+]
 Species = Literal["possum", "rat", "stoat", "mouse", "hedgehog", "other"]
 TrapType = Species
 
@@ -14,6 +18,13 @@ class RegisterIn(BaseModel):
     email: str = Field(pattern=r"^[^@\s]+@[^@\s]+\.[^@\s]+$", max_length=120)
     password: str = Field(min_length=8, max_length=64)
     role: Role = "volunteer"
+
+
+class PublicRegisterIn(BaseModel):
+    name: str = Field(min_length=2, max_length=80)
+    email: str = Field(pattern=r"^[^@\s]+@[^@\s]+\.[^@\s]+$", max_length=120)
+    password: str = Field(min_length=8, max_length=64)
+    role: PublicRole = "volunteer"
 
 
 class LoginIn(BaseModel):
@@ -60,6 +71,7 @@ class TrapIn(BaseModel):
     exact_lat: Optional[float] = Field(default=None, ge=-90, le=90)
     exact_lng: Optional[float] = Field(default=None, ge=-180, le=180)
     is_sensitive: bool = False
+    status: Optional[TrapStatus] = None
 
 
 class TrapOut(BaseModel):
@@ -70,6 +82,7 @@ class TrapOut(BaseModel):
     recommended_bait: str
     general_area: str
     is_sensitive: bool
+    status: TrapStatus = "active"
     exact_lat: Optional[float]
     exact_lng: Optional[float]
     last_status: Optional[CheckStatus] = None
@@ -90,6 +103,25 @@ class CheckOut(BaseModel):
     checked_at: datetime
     status: CheckStatus
     notes: str
+
+
+class TrapHistoryOut(BaseModel):
+    checked_at: datetime
+    status: CheckStatus
+    notes: str
+    recorded_by: str
+    species: list[Species]
+
+
+class TrapMaintenanceIn(BaseModel):
+    notes: str = Field(min_length=2, max_length=500)
+    performed_at: Optional[datetime] = None
+
+
+class TrapMaintenanceOut(BaseModel):
+    performed_at: datetime
+    notes: str
+    recorded_by: str
 
 
 class CatchIn(BaseModel):
@@ -114,6 +146,7 @@ class CatchOut(BaseModel):
 
 class CatchListOut(CatchOut):
     trap_code: str
+    trap_line_id: int
     trap_line: str
     recorded_by: str
 

@@ -1,6 +1,6 @@
 from urllib.error import HTTPError
 
-from app.api import ntfy
+from app.api import auth as auth_api, ntfy
 from tests.conftest import make_user
 
 
@@ -9,6 +9,33 @@ def test_register_login_and_me(client):
     me = client.get("/auth/me", headers=h).json()
     assert me["email"] == "t@example.com" and me["role"] == "volunteer"
     assert "password" not in me and "password_hash" not in me
+
+
+def test_public_registration_can_be_disabled(client, monkeypatch):
+    monkeypatch.setattr(auth_api, "PUBLIC_REGISTRATION_ENABLED", False)
+    assert client.get("/auth/registration-status").json() == {"enabled": False}
+    response = client.post(
+        "/auth/register",
+        json={"name": "New User", "email": "new@example.com", "password": "Passw0rd123"},
+    )
+    assert response.status_code == 403
+    assert "disabled" in response.json()["detail"]
+
+
+def test_hosted_public_registration_cannot_create_coordinator(client, monkeypatch):
+    monkeypatch.setattr(auth_api, "PUBLIC_REGISTRATION_ENABLED", True)
+    monkeypatch.setattr(auth_api, "IS_RENDER", True)
+    response = client.post(
+        "/auth/register",
+        json={
+            "name": "New Coordinator",
+            "email": "newcoord@example.com",
+            "password": "Passw0rd123",
+            "role": "coordinator",
+        },
+    )
+    assert response.status_code == 403
+    assert "volunteer" in response.json()["detail"]
 
 
 def test_duplicate_email_rejected(client):
@@ -259,6 +286,7 @@ def test_catch_crud(client, coord, vol):
     assert listing.status_code == 200 and listing.json()[0]["id"] == catch["id"]
     listed_catch = listing.json()[0]
     assert listed_catch["trap_code"] == trap["code"]
+    assert listed_catch["trap_line_id"] == trap["trap_line_id"]
     assert listed_catch["trap_line"] == "Line A"
     assert listed_catch["recorded_by"] == "Vol One"
     assert client.put(
@@ -333,8 +361,54 @@ def test_trap_and_line_crud(client, coord):
         },
     )
     assert updated_trap.status_code == 200
+    assert client.post(
+        f"/traps/{trap['id']}/maintenance",
+        headers=coord,
+        json={"notes": "Cleaned the trap"},
+    ).status_code == 201
     assert client.delete(f"/traps/{trap['id']}", headers=coord).status_code == 204
     assert client.delete(f"/trap-lines/{line['id']}", headers=coord).status_code == 204
+
+
+def test_trap_status_and_maintenance_records(client, coord, vol):
+    line, trap = _setup_sensitive_trap(client, coord)
+    assert trap["status"] == "active"
+
+    updated = client.put(
+        f"/traps/{trap['id']}",
+        headers=coord,
+        json={"trap_type": "stoat", "status": "under_maintenance"},
+    )
+    assert updated.status_code == 200
+    assert client.put(
+        f"/traps/{trap['id']}",
+        headers=coord,
+        json={"trap_type": "stoat"},
+    ).status_code == 200
+    listing = client.get(f"/trap-lines/{line['id']}/traps", headers=coord).json()
+    assert listing[0]["status"] == "under_maintenance"
+
+    created = client.post(
+        f"/traps/{trap['id']}/maintenance",
+        headers=coord,
+        json={"notes": "Replaced the spring", "performed_at": "2026-10-25T10:30:00"},
+    )
+    assert created.status_code == 201
+    assert created.json()["notes"] == "Replaced the spring"
+    assert created.json()["recorded_by"] == "Coord One"
+    assert client.get(
+        f"/traps/{trap['id']}/maintenance", headers=vol
+    ).json()[0]["notes"] == "Replaced the spring"
+    assert client.post(
+        f"/traps/{trap['id']}/maintenance",
+        headers=vol,
+        json={"notes": "Checked trap"},
+    ).status_code == 403
+    assert client.put(
+        f"/traps/{trap['id']}",
+        headers=coord,
+        json={"trap_type": "stoat", "status": "unknown"},
+    ).status_code == 422
 
 
 def test_coordinator_user_crud(client, coord):
@@ -364,6 +438,56 @@ def test_coordinator_user_crud(client, coord):
     )
     assert updated.status_code == 200
     assert client.delete(f"/users/{user_id}", headers=coord).status_code == 204
+
+
+def test_field_worker_role_permissions(client, coord):
+    _, trap = _setup_sensitive_trap(client, coord)
+    created = client.post(
+        "/users",
+        headers=coord,
+        json={
+            "name": "Field Worker",
+            "email": "field@example.com",
+            "password": "Passw0rd123",
+            "role": "field_worker",
+        },
+    )
+    assert created.status_code == 201
+    assert created.json()["role"] == "field_worker"
+    token = client.post(
+        "/auth/login",
+        json={"email": "field@example.com", "password": "Passw0rd123"},
+    ).json()["access_token"]
+    field_worker = {"Authorization": f"Bearer {token}"}
+
+    check = client.post(
+        f"/traps/{trap['id']}/checks",
+        headers=field_worker,
+        json={"status": "caught"},
+    )
+    assert check.status_code == 201
+    assert client.post(
+        f"/checks/{check.json()['id']}/catches",
+        headers=field_worker,
+        json={"species": "stoat"},
+    ).status_code == 201
+    assert client.get("/trap-lines", headers=field_worker).status_code == 200
+    assert client.get("/catches", headers=field_worker).status_code == 403
+    assert client.get(f"/traps/{trap['id']}/checks", headers=field_worker).status_code == 403
+    assert client.get(f"/traps/{trap['id']}/history", headers=field_worker).status_code == 403
+    assert client.get(f"/traps/{trap['id']}/maintenance", headers=field_worker).status_code == 403
+    assert client.get("/users", headers=field_worker).status_code == 403
+    assert client.get("/reports/catches", headers=field_worker).status_code == 403
+    assert client.get("/notifications/info", headers=field_worker).status_code == 403
+    assert client.post(
+        "/auth/register",
+        json={
+            "name": "Public Field Worker",
+            "email": "public-field@example.com",
+            "password": "Passw0rd123",
+            "role": "field_worker",
+        },
+    ).status_code == 422
 
 
 def test_invalid_status_and_unknown_trap(client, vol, coord):
@@ -399,3 +523,25 @@ def test_reports_by_line_and_month(client, coord, vol):
     assert by_month["rows"][0]["catches"] == 2
     assert client.get("/reports/catches?group=line", headers=vol).status_code == 403
     assert client.get("/reports/catches?group=year", headers=coord).status_code == 422
+
+
+def test_trap_history_includes_check_catch_and_recorder(client, coord, vol):
+    _, trap = _setup_sensitive_trap(client, coord)
+    check = client.post(
+        f"/traps/{trap['id']}/checks",
+        json={"status": "caught", "notes": "Near the stream"},
+        headers=vol,
+    ).json()
+    client.post(
+        f"/checks/{check['id']}/catches", json={"species": "stoat"}, headers=vol
+    )
+
+    history = client.get(f"/traps/{trap['id']}/history", headers=coord)
+    assert history.status_code == 200
+    assert history.json()[0]["status"] == "caught"
+    assert history.json()[0]["notes"] == "Near the stream"
+    assert history.json()[0]["recorded_by"] == "Vol One"
+    assert history.json()[0]["species"] == ["stoat"]
+    assert client.get(f"/traps/{trap['id']}/history", headers=vol).status_code == 200
+    assert client.get("/traps/999/history", headers=coord).status_code == 404
+    assert client.get(f"/traps/{trap['id']}/history").status_code == 401

@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 from app.config import ALGORITHM, SECRET_KEY, TOKEN_EXPIRE_MINUTES
 from app.db.repositories import UserRepository
 from app.errors import ServiceError
-from app.schemas import RegisterIn
+from app.schemas import PublicRegisterIn, RegisterIn
 
 
 def hash_password(password: str) -> str:
@@ -39,7 +39,7 @@ class AuthService:
     def __init__(self, db: Session):
         self.users = UserRepository(db)
 
-    def register(self, data: RegisterIn):
+    def register(self, data: RegisterIn | PublicRegisterIn):
         email = data.email.lower()
         if self.users.get_by_email(email):
             raise ServiceError("That email is already registered.", 409)

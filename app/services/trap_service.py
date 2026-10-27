@@ -4,10 +4,15 @@ from app.db import models
 from sqlalchemy.orm import Session
 
 from app.db.models import UserModel
-from app.db.repositories import CheckRepository, TrapLineRepository, TrapRepository
+from app.db.repositories import (
+    CheckRepository,
+    TrapLineRepository,
+    TrapMaintenanceRepository,
+    TrapRepository,
+)
 from app.domain.traps import Trap
 from app.errors import ServiceError
-from app.schemas import CatchIn, CheckIn, TrapIn, TrapLineIn
+from app.schemas import CatchIn, CheckIn, TrapIn, TrapLineIn, TrapMaintenanceIn
 
 
 def can_view_exact(user: UserModel) -> bool:
@@ -20,6 +25,7 @@ class TrapService:
         self.lines = TrapLineRepository(db)
         self.traps = TrapRepository(db)
         self.checks = CheckRepository(db)
+        self.maintenance = TrapMaintenanceRepository(db)
 
     def create_line(self, user: UserModel, data: TrapLineIn):
         return self.lines.add(data.name, data.general_area, user.id)
@@ -34,6 +40,7 @@ class TrapService:
             "recommended_bait": trap.recommended_bait(),
             "general_area": general_area,
             "is_sensitive": trap.is_sensitive,
+            "status": trap.status,
             **trap.visible_location(can_view_exact(user)),
             "last_status": last.status if last else None,
             "last_checked_at": last.checked_at if last else None,
@@ -55,6 +62,7 @@ class TrapService:
             data.exact_lat,
             data.exact_lng,
             data.is_sensitive,
+            data.status or "active",
         )
         return self._view(trap, user, line.general_area)
 
@@ -76,6 +84,26 @@ class TrapService:
         if not self.traps.get(trap_id):
             raise ServiceError("Trap not found.", 404)
         return self.checks.list_for_trap(trap_id)
+
+    def list_history(self, trap_id: int):
+        if not self.traps.get(trap_id):
+            raise ServiceError("Trap not found.", 404)
+        return self.checks.history_for_trap(trap_id)
+
+    def add_maintenance(
+        self, user: UserModel, trap_id: int, data: TrapMaintenanceIn
+    ):
+        if not self.traps.get(trap_id):
+            raise ServiceError("Trap not found.", 404)
+        performed_at = data.performed_at
+        if performed_at is not None and performed_at.tzinfo is not None:
+            performed_at = performed_at.astimezone(timezone.utc).replace(tzinfo=None)
+        return self.maintenance.add(trap_id, user.id, data.notes, performed_at)
+
+    def list_maintenance(self, trap_id: int):
+        if not self.traps.get(trap_id):
+            raise ServiceError("Trap not found.", 404)
+        return self.maintenance.list_for_trap(trap_id)
 
     def record_catch(self, check_id: int, data: CatchIn):
         check = self.checks.get_check(check_id)

@@ -82,6 +82,8 @@ def update_trap(
     _set(trap, ("exact_lat", "lat", "latitude"), data.exact_lat)
     _set(trap, ("exact_lng", "lng", "longitude"), data.exact_lng)
     _set(trap, ("is_sensitive",), data.is_sensitive)
+    if data.status is not None:
+        _set(trap, ("status",), data.status)
     _set(trap, ("recommended_bait",), BAIT[data.trap_type], required=False)
     _commit(db, "Could not save: that trap code may already be used.")
     return {"id": trap_id, "updated": True}
@@ -103,6 +105,10 @@ def delete_trap(
     if check_ids:
         db.query(Catch).filter(Catch.check_id.in_(check_ids)).delete(synchronize_session=False)
         db.query(Check).filter(Check.id.in_(check_ids)).delete(synchronize_session=False)
+    Maintenance = _model("trap_id", "performed_at", "notes")
+    db.query(Maintenance).filter(Maintenance.trap_id == trap_id).delete(
+        synchronize_session=False
+    )
     db.delete(trap)
     _commit(db, "This trap is still in use and cannot be deleted.")
 

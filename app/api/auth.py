@@ -3,16 +3,32 @@ from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user
+from app.config import IS_RENDER, PUBLIC_REGISTRATION_ENABLED
 from app.db.database import get_db
-from app.schemas import LoginIn, RegisterIn, TokenOut, UserOut
+from app.errors import ServiceError
+from app.schemas import LoginIn, PublicRegisterIn, TokenOut, UserOut
 from app.services.auth_service import AuthService
 
 router = APIRouter(prefix="/auth", tags=["Auth"])
 
 
 @router.post("/register", response_model=UserOut, status_code=201)
-def register(data: RegisterIn, db: Session = Depends(get_db)):
+def register(data: PublicRegisterIn, db: Session = Depends(get_db)):
+    if not PUBLIC_REGISTRATION_ENABLED:
+        raise ServiceError(
+            "Public registration is disabled. Ask a coordinator to create your account.",
+            403,
+        )
+    if IS_RENDER and data.role != "volunteer":
+        raise ServiceError(
+            "Public registration can only create volunteer accounts.", 403
+        )
     return AuthService(db).register(data)
+
+
+@router.get("/registration-status")
+def registration_status():
+    return {"enabled": PUBLIC_REGISTRATION_ENABLED}
 
 
 @router.post("/login", response_model=TokenOut)

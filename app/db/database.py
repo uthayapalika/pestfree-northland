@@ -1,6 +1,6 @@
 from threading import Lock
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
 
 from app.config import DATABASE_URL
@@ -44,6 +44,22 @@ SessionLocal = database.session_factory
 
 class Base(DeclarativeBase):
     pass
+
+
+def upgrade_legacy_schema(db_engine=engine) -> None:
+    """Add newly required columns to databases created before schema upgrades existed."""
+    inspector = inspect(db_engine)
+    if "traps" not in inspector.get_table_names():
+        return
+    columns = {column["name"] for column in inspector.get_columns("traps")}
+    if "status" not in columns:
+        with db_engine.begin() as connection:
+            connection.execute(
+                text(
+                    "ALTER TABLE traps ADD COLUMN status "
+                    "VARCHAR(30) NOT NULL DEFAULT 'active'"
+                )
+            )
 
 
 def get_db():
