@@ -11,6 +11,8 @@
 
 Run tests with `python -m pytest`.
 
+The database entity-relationship diagram is in [docs/erd.md](docs/erd.md).
+
 Use a unique `SECRET_KEY` and a persistent PostgreSQL database for a hosted
 deployment. Set `DATABASE_URL` and `SECRET_KEY` in the hosting provider's
 environment settings; never commit them. SQLite is intended for local use.
