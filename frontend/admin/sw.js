@@ -4,10 +4,10 @@
 //   - lists the API already sent (traps, lines, catches) are shown from the saved copy when offline
 //   - map tiles you have looked at are saved too
 // Change VERSION when you edit the pages/scripts so phones pick up the new files.
-const VERSION = "v3";
+const VERSION = "v4";
 const SHELL = "pestfree-shell-" + VERSION;
 const CDN = "pestfree-cdn-v1";
-const API = "pestfree-api";          // emptied on log out (see logout() in api.js)
+const API = "pestfree-api-private-v2"; // private responses are cached per authenticated token
 const TILES = "pestfree-tiles-v1";
 const KEEP = [SHELL, CDN, API, TILES];
 
@@ -48,20 +48,41 @@ self.addEventListener("activate", (e) => {
 });
 
 // Try the network first (so you always see fresh data); if it fails or is too slow, use the saved copy.
-async function networkFirst(req, cacheName, timeoutMs, pageKey) {
+async function networkFirst(req, cacheName, timeoutMs, pageKey, cacheKeyOverride) {
   const cache = await caches.open(cacheName);
-  const key = pageKey ? new URL(req.url).origin + new URL(req.url).pathname : req;  // ?trap=5 and ?trap=6 are the same page
+  const key = cacheKeyOverride || (pageKey ? new URL(req.url).origin + new URL(req.url).pathname : req);  // ?trap=5 and ?trap=6 are the same page
   // For our own pages/scripts, always ask the server if the file changed (skips Chrome's stale HTTP cache).
   const net = pageKey ? fetch(req, { cache: "no-cache" }) : fetch(req);
   try {
     const res = await Promise.race([net, new Promise((_, no) => setTimeout(() => no(new Error("slow")), timeoutMs))]);
-    if (res && res.ok) cache.put(key, res.clone());
+    if (res && res.ok) {
+      try {
+        await cache.put(key, res.clone());
+      } catch (err) {
+        console.warn("Could not cache offline response:", err);
+      }
+    }
     return res;
   } catch (err) {
     const hit = await cache.match(key);
     if (hit) { net.catch(() => {}); return hit; }
     return net;   // nothing saved: keep waiting for the network
   }
+}
+
+async function privateApiCacheKey(req) {
+  const authorization = req.headers.get("Authorization");
+  if (!authorization || !self.crypto || !self.crypto.subtle) return null;
+  const digest = await self.crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(authorization)
+  );
+  const userKey = [...new Uint8Array(digest)]
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
+  const url = new URL(req.url);
+  url.searchParams.set("__pfn_offline_user", userKey);
+  return new Request(url.toString(), { method: "GET" });
 }
 
 async function cacheFirst(req, cacheName, maxItems) {
@@ -80,7 +101,16 @@ self.addEventListener("fetch", (e) => {
   const req = e.request;
   if (req.method !== "GET") return;                    // saving data is handled by the outbox in the page
   const url = new URL(req.url);
-  if (req.headers.has("Authorization")) return e.respondWith(networkFirst(req, API, 8000));        // API lists
+  if (req.headers.has("Authorization")) return e.respondWith((async () => {
+    let key;
+    try {
+      key = await privateApiCacheKey(req);
+    } catch (err) {
+      console.warn("Could not create a private offline cache key:", err);
+      return fetch(req);
+    }
+    return key ? networkFirst(req, API, 8000, false, key) : fetch(req);
+  })());                                                                                          // private API lists
   if (url.hostname.endsWith("arcgisonline.com")) return e.respondWith(cacheFirst(req, TILES, 600)); // map tiles
   if (url.origin === location.origin) return e.respondWith(networkFirst(req, SHELL, 4000, true));   // our pages and scripts
   return e.respondWith(cacheFirst(req, CDN));                                                        // libraries and fonts

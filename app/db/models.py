@@ -40,6 +40,16 @@ class TrapModel(Base):
     exact_lat: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     exact_lng: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     is_sensitive: Mapped[bool] = mapped_column(Boolean, default=False)
+    status: Mapped[str] = mapped_column(String(30), default="active")
+
+
+class TrapMaintenanceModel(Base):
+    __tablename__ = "trap_maintenance"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    trap_id: Mapped[int] = mapped_column(ForeignKey("traps.id"))
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
+    performed_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    notes: Mapped[str] = mapped_column(String(500))
 
 
 class TrapCheckModel(Base):

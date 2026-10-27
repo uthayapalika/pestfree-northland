@@ -24,6 +24,8 @@
 .tile.list { min-height: 0; margin-bottom: .6rem; font-size: 1rem; text-align: left; }
 
 .chart-box { position: relative; height: 260px; }
+.table-filterbar .form-control,
+.table-filterbar .form-select { min-height: 44px; }
 .trap-location-map { height: 260px; overflow: hidden; }
 .nearby-trap-map { height: 320px; overflow: hidden; border: 1px solid var(--border); }
 
@@ -70,4 +72,11 @@
   .page-body { padding: 0 !important; max-width: none; }
   h1 { color: #000 !important; }
   .qr-label { border: 1px solid #999; }
+}
+
+@media (max-width: 575.98px) {
+  .table-filterbar input,
+  .table-filterbar select { font-size: 16px; }
+  .table-filterbar .btn { min-height: 44px; }
+  .tile.list { padding: .85rem; }
 }

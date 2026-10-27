@@ -6,6 +6,7 @@ const PAGE = document.body.dataset.page;          // which page we are on
 const content = document.getElementById("content"); // where we draw the page
 let me = getUser();                                // logged-in user (refreshed from the API at the bottom)
 const isCoord = () => me.role === "coordinator";   // volunteers get a smaller menu and no edit buttons
+const isFieldWorker = () => me.role === "field_worker";
 
 // Menu links: [page name, label, icon, coordinator only?]
 const NAV = [
@@ -82,7 +83,7 @@ function closeSidebar() {
 
 // Draw the sidebar + top bar, and put `inner` HTML underneath.
 function shell(title, inner) {
-  const links = NAV.filter((n) => !n[3] || isCoord()).map(([id, label, icon]) =>
+  const links = NAV.filter((n) => isFieldWorker() ? n[0] === "check" : (!n[3] || isCoord())).map(([id, label, icon]) =>
     `<a class="nav-link ${id === PAGE ? "active" : ""}" href="${id}.html"><i class="bi bi-${icon}"></i> ${label}</a>`
   ).join("");
   const initial = esc((me.name || me.email || "?").trim().charAt(0).toUpperCase());
@@ -293,6 +294,21 @@ const confirmDelete = () => Box.fire({
   showCancelButton: true, confirmButtonText: "Yes, delete", cancelButtonText: "Cancel",
 }).then((r) => r.isConfirmed);
 
+async function flushOutboxWithConfirmation() {
+  let result = await Outbox.flush();
+  if (!result.unassigned) return result;
+  const confirmation = await Box.fire({
+    icon: "warning",
+    title: "Older queued checks",
+    text: `${result.unassigned} check${result.unassigned === 1 ? " was" : "s were"} saved before account-specific syncing. If uploaded now, they will be recorded under ${me.name || me.email}.`,
+    showCancelButton: true,
+    confirmButtonText: "Upload as my account",
+    cancelButtonText: "Keep on this device",
+  });
+  if (confirmation.isConfirmed) result = await Outbox.flush({ includeUnassigned: true });
+  return result;
+}
+
 
 // ================= ADD / EDIT FORM (centered modal) =================
 // Shows ONE form with every field.
@@ -349,7 +365,7 @@ function openForm(title, fields, values = {}, save, choices = {}) {
               : type === "datetime-local" ? String(values[f] ?? "").slice(0, 16) : (values[f] ?? "");
       return `<div class="mb-3"><label class="form-label small text-secondary text-capitalize">${esc(label)}</label>
         <input class="form-control" name="${esc(f)}" type="${type}" ${type === "number" ? 'step="any"' : ""}
-        value="${esc(v)}" ${/description|notes|checked_at/.test(f) ? "" : "required"}></div>`;
+        value="${esc(v)}" ${/description|notes|checked_at|performed_at/.test(f) ? "" : "required"}></div>`;
     }).join("");
 
     // The modal itself (Bootstrap). focus:false lets the SweetAlert error box work on top of it.
@@ -480,9 +496,19 @@ function openForm(title, fields, values = {}, save, choices = {}) {
 async function mapPage() {
   shell("Map", `
     <div class="d-flex flex-wrap gap-3 align-items-center mb-3">
+      <input id="trapSearch" type="search" class="form-control form-control-sm w-auto" placeholder="Search trap, type, or area" aria-label="Search traps on map">
       <select id="lineFilter" class="form-select form-select-sm w-auto"><option value="">All trap lines</option></select>
+      <select id="trapStatusFilter" class="form-select form-select-sm w-auto" aria-label="Filter by trap status">
+        <option value="">All trap statuses</option>
+        <option value="active">Active</option><option value="needs_bait">Needs bait</option>
+        <option value="damaged">Damaged</option><option value="missing">Missing</option>
+        <option value="under_maintenance">Under maintenance</option>
+      </select>
       <div class="form-check form-switch mb-0"><input class="form-check-input" type="checkbox" id="onlyDue">
         <label class="form-check-label small" for="onlyDue">Only overdue / needs attention</label></div>
+      <button id="fitTraps" class="btn btn-sm btn-outline-secondary">Fit visible traps</button>
+      <button id="myLocation" class="btn btn-sm btn-outline-secondary">My location</button>
+      <span id="mapCount" class="text-secondary small" aria-live="polite"></span>
       <span class="text-secondary small">${isCoord() ? "Click the map to add a trap there." : "Tap a marker for details."}</span>
     </div>
     <div id='map' style='height:70vh;border-radius:18px;overflow:hidden'></div>`);
@@ -513,29 +539,64 @@ async function mapPage() {
 
   // One coloured dot per trap. Traps without an exact location (hidden for this user) are skipped.
   const layer = L.layerGroup().addTo(map);
+  let visiblePoints = [];
+  let userLocationMarker = null;
   let fitted = false;
   function draw() {
     layer.clearLayers();
     const line = document.getElementById("lineFilter").value;
+    const trapStatus = document.getElementById("trapStatusFilter").value;
+    const query = document.getElementById("trapSearch").value.trim().toLowerCase();
     const only = document.getElementById("onlyDue").checked;
     const points = [];
     traps.forEach((t) => {
       if (t.exact_lat == null || t.exact_lng == null) return;
       if (line && String(t.trap_line_id) !== line) return;
+      if (trapStatus && (t.status || "active") !== trapStatus) return;
+      const locationText = [t.code, t.trap_type, t.general_area, lineName[t.trap_line_id]]
+        .join(" ").toLowerCase();
+      if (query && !locationText.includes(query)) return;
       const s = trapState(t), warn = needsAttention(t);
       if (only && !(s.key === "overdue" || s.key === "never" || warn)) return;
       L.circleMarker([t.exact_lat, t.exact_lng], {
         radius: warn ? 12 : 10, color: warn ? "#6f2dbd" : "#0b1512", weight: warn ? 4 : 2, fillColor: s.color, fillOpacity: 0.95,
       }).addTo(layer).bindPopup(
         `<b>${esc(t.code)}</b> (${esc(t.trap_type)})<br>${esc(lineName[t.trap_line_id] || "")} - ${esc(t.general_area)}<br>
-         ${stateBadge(t)}<br>Last check: ${esc(ago(t.last_checked_at))}<br>Result: ${esc((t.last_status || "none").replace("_", " "))}<br>
+         Trap status: ${esc((t.status || "active").replaceAll("_", " "))}<br>${stateBadge(t)}<br>
+         Last check: ${esc(ago(t.last_checked_at))}<br>Result: ${esc((t.last_status || "none").replaceAll("_", " "))}<br>
          <a href="check.html?trap=${esc(t.id)}">Log a check</a>`);
       points.push([t.exact_lat, t.exact_lng]);
     });
+    visiblePoints = points;
+    document.getElementById("mapCount").textContent =
+      `Showing ${points.length} of ${traps.filter((t) => t.exact_lat != null && t.exact_lng != null).length} mapped traps`;
     if (!fitted && points.length) { map.fitBounds(points, { padding: [40, 40], maxZoom: 15 }); fitted = true; }
   }
   document.getElementById("lineFilter").onchange = draw;
+  document.getElementById("trapStatusFilter").onchange = draw;
+  document.getElementById("trapSearch").oninput = draw;
   document.getElementById("onlyDue").onchange = draw;
+  document.getElementById("fitTraps").onclick = () => {
+    if (visiblePoints.length) map.fitBounds(visiblePoints, { padding: [40, 40], maxZoom: 15 });
+    else fail(new Error("No mapped traps match the current filters."));
+  };
+  document.getElementById("myLocation").onclick = () => {
+    if (!navigator.geolocation) return fail(new Error("This device does not provide location."));
+    navigator.geolocation.getCurrentPosition((position) => {
+      const point = [position.coords.latitude, position.coords.longitude];
+      if (userLocationMarker) map.removeLayer(userLocationMarker);
+      userLocationMarker = L.circleMarker(point, {
+        radius: 8, color: "#fff", weight: 3, fillColor: "#1677ff", fillOpacity: 1,
+      }).addTo(map).bindPopup("Your current location");
+      map.setView(point, 15);
+      userLocationMarker.openPopup();
+    }, (error) => {
+      const message = error.code === error.PERMISSION_DENIED
+        ? "Location access is blocked. Allow it in your browser settings."
+        : "Your current location is unavailable. Check your device location settings.";
+      fail(new Error(message));
+    }, { enableHighAccuracy: true, maximumAge: 30000, timeout: 15000 });
+  };
   draw();
 
   // Coordinators: clicking the map opens the Add trap form with the clicked position filled in.
@@ -545,6 +606,7 @@ async function mapPage() {
     try { choices = await loadChoices(fields); } catch (err) { return fail(err); }
     const saved = await openForm("Add trap", fields, {
       is_sensitive: false,
+      status: "active",
       exact_lat: Number(e.latlng.lat.toFixed(6)), exact_lng: Number(e.latlng.lng.toFixed(6)),
     }, async (data) => { await api.addTrap(data); success("Trap added"); }, choices);
     if (saved) mapPage();
@@ -554,7 +616,7 @@ async function mapPage() {
 
 // ================= DROPDOWN CHOICES =================
 // Friendlier labels for some fields.
-const LABELS = { trap_line_id: "Trap line", trap_id: "Trap", trap_code: "Trap", trap_line: "Trap line", recorded_by: "Recorded by", recorded_at: "Recorded at", is_sensitive: "Sensitive location?", species: "Species caught", notes: "Notes (optional)", checked_at: "Checked at (optional)", can_view_exact_location: "Can see exact locations?" };
+const LABELS = { trap_line_id: "Trap line", trap_id: "Trap", trap_code: "Trap", trap_line: "Trap line", trap_type: "Trap type", recorded_by: "Recorded by", recorded_at: "Recorded at", performed_at: "Maintenance date (optional)", is_sensitive: "Sensitive location?", species: "Species caught", notes: "Notes (optional)", checked_at: "Checked at (optional)", can_view_exact_location: "Can see exact locations?", status: "Trap status" };
 
 // Fixed lists. Add or remove words here to change what users can pick.
 const opt = (arr) => arr.map((v) => ({ value: v, label: v }));
@@ -562,9 +624,16 @@ const FIXED = {
   species:      opt(["possum", "rat", "stoat", "mouse", "hedgehog", "other"]),
   trap_type:    opt(["possum", "rat", "stoat", "mouse", "hedgehog", "other"]),
   last_status:  opt(["caught", "empty", "bait_needed", "sprung"]),
+  status: [
+    { value: "active", label: "Active" },
+    { value: "needs_bait", label: "Needs bait" },
+    { value: "damaged", label: "Damaged" },
+    { value: "missing", label: "Missing" },
+    { value: "under_maintenance", label: "Under maintenance" },
+  ],
   is_sensitive: [{ value: true, label: "Yes" }, { value: false, label: "No" }],
   can_view_exact_location: [{ value: true, label: "Yes" }, { value: false, label: "No" }],
-  role:         opt(["volunteer", "coordinator"]),
+  role:         [{ value: "volunteer", label: "Volunteer" }, { value: "field_worker", label: "Field Worker" }, { value: "coordinator", label: "Coordinator" }],
 };
 
 // Builds the dropdown lists for the fields on this form.
@@ -588,7 +657,7 @@ async function loadChoices(fields) {
 const lineNames = async () => Object.fromEntries(list(await api.getLines()).map((l) => [l.id, l.name]));
 
 const CRUD = {
-  traps:   { title: "Traps",      one: "trap",      fields: ["code"], editFields: ["trap_type", "is_sensitive", "exact_lat", "exact_lng"], addFields: ["trap_line_id", "trap_type", "is_sensitive", "exact_lat", "exact_lng"],  load: api.getTraps,   add: api.addTrap,   update: api.updateTrap,   remove: api.deleteTrap,
+  traps:   { title: "Traps",      one: "trap",      fields: ["code"], editFields: ["trap_type", "status", "is_sensitive", "exact_lat", "exact_lng"], addFields: ["trap_line_id", "trap_type", "status", "is_sensitive", "exact_lat", "exact_lng"],  load: api.getTraps,   add: api.addTrap,   update: api.updateTrap,   remove: api.deleteTrap,
              // extra read-only columns: line name + overdue status
              decorate: async (rows) => { const ln = await lineNames(); rows.forEach((r) => { r.trap_line = ln[r.trap_line_id] || ""; r.check_state = trapState(r).label; }); } },
   lines:   { title: "Trap lines", one: "trap line", fields: ["name", "general_area"],          load: api.getLines,   add: api.addLine,   update: api.updateLine,   remove: api.deleteLine },
@@ -626,32 +695,100 @@ async function tablePage() {
     const cell = (f, r) => {
       if (f === "check_state") return stateBadge(r);
       if (f === "recorded_at") return esc(formatRecordedAt(r[f]));
+      if (f === "status") return esc(String(r[f] || "active").replace(/_/g, " "));
       return esc(r[f]);
     };
     const pretty = (f) => LABELS[f] || f.replace(/_/g, " ");
+    const filterableFields = ["trap_line", "trap_type", "species", "role", "status", "last_status", "check_state"]
+      .filter((field) => fields.includes(field) && new Set(rows.map((row) => String(row[field] ?? ""))).size > 1);
+    const filterLabel = (field) => ({
+      trap_line: "Trap line", trap_type: "Trap type", species: "Species",
+      role: "Role", status: "Trap status", last_status: "Last result",
+      check_state: "Check status",
+    })[field] || pretty(field);
+    const filterValue = (field, value) => field === "status" ? String(value).replace(/_/g, " ") : String(value ?? "");
+    const filterControls = `<div class="table-filterbar row g-2 align-items-end mb-3">
+      <div class="col-12 col-lg-5">
+        <label class="form-label small text-secondary" for="table-search">Search ${esc(cfg.title.toLowerCase())}</label>
+        <input id="table-search" class="form-control" type="search" placeholder="Search by name, code, type..." autocomplete="off">
+      </div>
+      ${filterableFields.map((field) => {
+        const values = [...new Set(rows.map((row) => String(row[field] ?? "")).filter(Boolean))].sort();
+        return `<div class="col-6 col-lg-2"><label class="form-label small text-secondary" for="filter-${esc(field)}">${esc(filterLabel(field))}</label>
+          <select class="form-select" id="filter-${esc(field)}" data-filter-field="${esc(field)}">
+            <option value="">All</option>${values.map((value) => `<option value="${esc(value)}">${esc(filterValue(field, value))}</option>`).join("")}
+          </select></div>`;
+      }).join("")}
+      <div class="col-12 col-lg-auto"><button id="clear-table-filters" class="btn btn-outline-secondary w-100">Clear filters</button></div>
+      <div class="col-12"><span id="table-result-count" class="small text-secondary"></span></div>
+    </div>`;
     const columns = cfg.hideId ? fields : ["id", ...fields];
     const head = columns.map((f) => `<th>${esc(pretty(f))}</th>`).join("") + "<th></th>";
-    const body = rows.map((r) => `<tr>` + columns.map((f) => `<td>${cell(f, r)}</td>`).join("") +
+    const body = rows.map((r, index) => `<tr data-row-index="${index}">` + columns.map((f) => `<td>${cell(f, r)}</td>`).join("") +
       `<td class="text-end text-nowrap">
+        ${PAGE === "traps" ? `<button class="btn btn-sm btn-outline-secondary" data-history="${esc(r.id)}" title="Trap history"><i class="bi bi-clock-history"></i> History</button>` : ""}
+        ${PAGE === "traps" ? `<button class="btn btn-sm btn-outline-secondary" data-maintenance="${esc(r.id)}" title="Maintenance log"><i class="bi bi-wrench-adjustable"></i> Maintenance</button>` : ""}
         ${PAGE === "traps" && isCoord() ? `<button class="btn btn-sm btn-outline-secondary" data-qr="${esc(r.id)}" title="QR code"><i class="bi bi-qr-code"></i></button>` : ""}
         ${cfg.update && can("edit") ? `<button class="btn btn-sm btn-outline-primary" data-edit="${esc(r.id)}"><i class="bi bi-pencil"></i> Edit</button>` : ""}
         ${cfg.remove && can("delete") ? `<button class="btn btn-sm btn-outline-danger" data-del="${esc(r.id)}"><i class="bi bi-trash"></i> Delete</button>` : ""}</td></tr>`).join("");
-    document.getElementById("body").innerHTML =
-      `<div class="card"><div class="card-body table-responsive"><table id="tbl" class="table mb-0"><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div></div>`;
+    document.getElementById("body").innerHTML = filterControls +
+      `<div class="card"><div class="card-body table-responsive"><table id="tbl" class="table mb-0"><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>
+      <p id="table-no-results" class="text-secondary text-center my-3 d-none">No records match these filters.</p></div></div>`;
 
-    // Make the table searchable/sortable if DataTables is loaded.
-    if (window.jQuery && jQuery.fn.DataTable && rows.length) jQuery("#tbl").DataTable();
+    const dataTable = window.jQuery && jQuery.fn.DataTable && rows.length
+      ? jQuery("#tbl").DataTable({ dom: "rtip" })
+      : null;
+    let filteredRows = rows;
+    const searchInput = document.getElementById("table-search");
+    const filterInputs = [...document.querySelectorAll("[data-filter-field]")];
+    const escapeRegex = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const applyFilters = () => {
+      const query = searchInput.value.trim().toLowerCase();
+      const selected = Object.fromEntries(filterInputs.map((input) => [input.dataset.filterField, input.value]));
+      filteredRows = rows.filter((row) =>
+        (!query || Object.values(row).some((value) => String(value ?? "").toLowerCase().includes(query))) &&
+        filterableFields.every((field) => !selected[field] || String(row[field] ?? "") === selected[field])
+      );
+      if (dataTable) {
+        dataTable.search(query);
+        filterInputs.forEach((input) => {
+          const field = input.dataset.filterField;
+          const columnIndex = columns.indexOf(field);
+          const selectedValue = selected[field];
+          const searchValue = selectedValue ? escapeRegex(filterValue(field, selectedValue)) : "";
+          dataTable.column(columnIndex).search(searchValue ? "^" + searchValue + "$" : "", true, false);
+        });
+        dataTable.draw();
+      } else {
+        document.querySelectorAll("#tbl tbody tr[data-row-index]").forEach((row) => {
+          row.classList.toggle("d-none", !filteredRows.includes(rows[Number(row.dataset.rowIndex)]));
+        });
+      }
+      document.getElementById("table-no-results").classList.toggle("d-none", filteredRows.length !== 0);
+      document.getElementById("table-result-count").textContent =
+        `Showing ${filteredRows.length} of ${rows.length} ${cfg.title.toLowerCase()}.`;
+    };
+    searchInput.addEventListener("input", applyFilters);
+    filterInputs.forEach((input) => input.addEventListener("change", applyFilters));
+    document.getElementById("clear-table-filters").onclick = () => {
+      searchInput.value = "";
+      filterInputs.forEach((input) => { input.value = ""; });
+      applyFilters();
+    };
+    applyFilters();
 
     // Export every row to a CSV file.
-    const exportRows = PAGE === "catches"
-      ? rows.map((r) => ({ ...r, recorded_at: formatRecordedAt(r.recorded_at) }))
-      : rows;
+    const formattedRows = (items) => PAGE === "catches"
+      ? items.map((r) => ({ ...r, recorded_at: formatRecordedAt(r.recorded_at) }))
+      : items;
     document.getElementById("csv").onclick = () => {
-      if (!rows.length) return fail(new Error("There is nothing to export yet."));
+      const exportRows = formattedRows(filteredRows);
+      if (!exportRows.length) return fail(new Error("There is nothing matching the current filters to export."));
       downloadCSV(PAGE + "-" + new Date().toISOString().slice(0, 10) + ".csv", exportRows, columns);
     };
     document.getElementById("pdf").onclick = () => {
-      if (!rows.length) return fail(new Error("There is nothing to export yet."));
+      const exportRows = formattedRows(filteredRows);
+      if (!exportRows.length) return fail(new Error("There is nothing matching the current filters to export."));
       exportPDF(cfg.title, [{
         columns: columns.map((key) => ({ key, label: pretty(key) })),
         rows: exportRows,
@@ -662,13 +799,90 @@ async function tablePage() {
     document.querySelectorAll("[data-qr]").forEach((b) => b.onclick = () =>
       showQR(rows.find((r) => String(r.id) === b.dataset.qr)));
 
+    document.querySelectorAll("[data-history]").forEach((b) => b.onclick = async () => {
+      const trap = rows.find((r) => String(r.id) === b.dataset.history);
+      if (!trap) return;
+      try {
+        const history = list(await api.getTrapHistory(trap.id));
+        const formatDate = (value) => {
+          const date = parseDate(value);
+          return date ? date.toLocaleString("en-NZ", {
+            day: "numeric", month: "short", year: "numeric",
+            hour: "numeric", minute: "2-digit", hour12: true,
+          }) : value;
+        };
+        const historyRows = history.map((entry) => `<tr>
+          <td>${esc(formatDate(entry.checked_at))}</td>
+          <td>${esc(entry.status.replace(/_/g, " "))}</td>
+          <td>${esc(entry.species.length ? entry.species.join(", ") : "-")}</td>
+          <td>${esc(entry.recorded_by)}</td>
+          <td>${esc(entry.notes || "-")}</td>
+        </tr>`).join("");
+        const html = history.length
+          ? `<div class="table-responsive"><table class="table text-start align-middle">
+              <thead><tr><th>Checked at</th><th>Status</th><th>Species caught</th><th>Recorded by</th><th>Notes</th></tr></thead>
+              <tbody>${historyRows}</tbody></table></div>`
+          : "<p class='text-secondary mb-0'>No activity recorded for this trap yet.</p>";
+        await Box.fire({ title: "History — " + esc(trap.code), html, width: "min(1000px, 95vw)" });
+      } catch (err) {
+        fail(err);
+      }
+    });
+
+    document.querySelectorAll("[data-maintenance]").forEach((b) => b.onclick = async () => {
+      const trap = rows.find((r) => String(r.id) === b.dataset.maintenance);
+      if (!trap) return;
+      try {
+        const records = list(await api.getTrapMaintenance(trap.id));
+        const formatDate = (value) => {
+          const date = parseDate(value);
+          return date ? date.toLocaleString("en-NZ", {
+            day: "numeric", month: "short", year: "numeric",
+            hour: "numeric", minute: "2-digit", hour12: true,
+          }) : value;
+        };
+        const rowsHtml = records.map((record) => `<tr>
+          <td>${esc(formatDate(record.performed_at))}</td>
+          <td>${esc(record.notes)}</td>
+          <td>${esc(record.recorded_by)}</td>
+        </tr>`).join("");
+        const html = records.length
+          ? `<div class="table-responsive"><table class="table text-start align-middle">
+              <thead><tr><th>Date</th><th>Work completed</th><th>Recorded by</th></tr></thead>
+              <tbody>${rowsHtml}</tbody></table></div>`
+          : "<p class='text-secondary mb-0'>No maintenance recorded for this trap yet.</p>";
+        const result = await Box.fire({
+          title: "Maintenance — " + esc(trap.code),
+          html,
+          width: "min(900px, 95vw)",
+          showCancelButton: true,
+          cancelButtonText: "Close",
+          showConfirmButton: isCoord(),
+          confirmButtonText: "Add maintenance record",
+        });
+        if (!result.isConfirmed || !isCoord()) return;
+        const saved = await openForm(
+          "Add maintenance record",
+          ["notes", "performed_at"],
+          { performed_at: new Date().toISOString().slice(0, 16) },
+          async (data) => {
+            await api.addTrapMaintenance(trap.id, data);
+            success("Maintenance recorded");
+          },
+        );
+        if (saved) tablePage();
+      } catch (err) {
+        fail(err);
+      }
+    });
+
     // Add button -> open the form.
     if (addButton) document.getElementById("add").onclick = async () => {
       const addFields = cfg.addFields || fields;
       let choices;
       try { choices = await loadChoices(addFields); } catch (err) { return fail(err); }
       const saved = await openForm("Add " + cfg.one, addFields,
-        cfg.addFields ? { is_sensitive: false } : PAGE === "catches" ? { checked_at: new Date().toISOString().slice(0, 16) } : {},
+        cfg.addFields ? { is_sensitive: false, status: "active" } : PAGE === "catches" ? { checked_at: new Date().toISOString().slice(0, 16) } : {},
         async (data) => { await cfg.add(data); success("Added successfully"); }, choices);
       if (saved) tablePage(); // reload the table
     };
@@ -869,7 +1083,12 @@ async function checkPage() {
     } catch (err) {
       S.saving = false;
       if (!(err instanceof TypeError)) { render(); return fail(err); } // the server said no: show why
-      Outbox.add(job);                                                 // no signal: keep it on the device
+      try {
+        Outbox.add(job);
+      } catch (queueError) {
+        render();
+        return fail(queueError);
+      }
       Box.fire({ icon: "info", title: "Saved on this device", text: "No signal right now. It will upload by itself when you are back online." });
     }
     t.last_status = S.status; t.last_checked_at = when;   // update the list on screen
@@ -887,7 +1106,12 @@ async function checkPage() {
     else if (act === "status") { S.status = b.dataset.v; if (S.status !== "caught") S.species = ""; render(); }
     else if (act === "species") { S.species = b.dataset.v; render(); }
     else if (act === "save") save();
-    else if (act === "sync") Outbox.flush().then((r) => { if (r.sent) success(r.sent + " uploaded"); r.failed.forEach((f) => fail(new Error(f.label + ": " + f.error))); render(); });
+    else if (act === "sync") flushOutboxWithConfirmation().then((r) => {
+      if (r.sent) success(r.sent + " uploaded");
+      r.failed.forEach((f) => fail(new Error(f.label + ": " + f.error)));
+      if (r.blocked) fail(new Error(`${r.blocked} queued check${r.blocked === 1 ? " belongs" : "s belong"} to another account. Sign in with that account to sync it.`));
+      render();
+    });
     else if (act === "near") {
       const showMapFallback = (message) => {
         S.near = false;
@@ -929,83 +1153,173 @@ async function checkPage() {
 
 // ================= REPORTS =================
 async function reportsPage(group = "line") {
-  shell("Reports", "<div id='body'>Loading...</div>");
+  shell("Reports", `
+    <div class="d-flex flex-wrap gap-3 align-items-end mb-4">
+      <div><label class="form-label small text-secondary" for="reportFrom">From</label><input id="reportFrom" type="date" class="form-control form-control-sm"></div>
+      <div><label class="form-label small text-secondary" for="reportTo">To</label><input id="reportTo" type="date" class="form-control form-control-sm"></div>
+      <div><label class="form-label small text-secondary" for="reportLine">Area / trap line</label><select id="reportLine" class="form-select form-select-sm"><option value="">All areas</option></select></div>
+      <div><label class="form-label small text-secondary" for="grp">Group catches by</label><select id="grp" class="form-select form-select-sm"><option value="line">Trap line</option><option value="month">Month</option></select></div>
+      <button id="csvRep" class="btn btn-sm btn-outline-secondary"><i class="bi bi-download"></i> Export filtered catches CSV</button>
+      <button id="pdfRep" class="btn btn-sm btn-outline-secondary"><i class="bi bi-file-earmark-pdf"></i> Export report PDF</button>
+      <button id="csvTraps" class="btn btn-sm btn-outline-secondary"><i class="bi bi-download"></i> Export filtered traps CSV</button>
+      <button id="pdfTraps" class="btn btn-sm btn-outline-secondary"><i class="bi bi-file-earmark-pdf"></i> Export filtered traps PDF</button>
+    </div>
+    <div id="reportResults" aria-live="polite">Loading report...</div>`);
   try {
-    const [traps, lines] = (await Promise.all([api.getTraps(), api.getLines()])).map(list);
-    const lineName = Object.fromEntries(lines.map((l) => [l.id, l.name]));
-    let rep = null;
-    try { rep = await api.getReport(group); } catch (e) { showError(e); }
-    const repRows = rep && Array.isArray(rep.rows) ? rep.rows : [];
-    const rows = Object.fromEntries(repRows.map((r) => [r.label, r.catches]));
-    const status = count(traps.map((t) => ({ s: t.last_status || "not checked yet" })), "s");
-    const state = count(traps.map((t) => ({ s: trapState(t).label })), "s");
-    document.getElementById("body").innerHTML = `
-      <div class="d-flex flex-wrap gap-2 align-items-center mb-4">
-        <label class="small text-secondary" for="grp">Group catches by</label>
-        <select id="grp" class="form-select form-select-sm w-auto"><option value="line">Trap line</option><option value="month">Month</option></select>
-        <button id="csvRep" class="btn btn-sm btn-outline-secondary"><i class="bi bi-download"></i> Export report CSV</button>
-        <button id="pdfRep" class="btn btn-sm btn-outline-secondary"><i class="bi bi-file-earmark-pdf"></i> Export report PDF</button>
-        <button id="csvTraps" class="btn btn-sm btn-outline-secondary"><i class="bi bi-download"></i> Export all traps CSV</button>
-        <button id="pdfTraps" class="btn btn-sm btn-outline-secondary"><i class="bi bi-file-earmark-pdf"></i> Export all traps PDF</button>
-      </div>
-      <div class="row g-4">
-        <div class="col-lg-4"><h2 class="h5">Catches by ${esc((rep && rep.group) || group)}${rep ? " (total " + esc(rep.total) + ")" : ""}</h2>${countTable(rows, "Group")}</div>
-        <div class="col-lg-4"><h2 class="h5">Traps by last status</h2>${countTable(status, "Status")}</div>
-        <div class="col-lg-4"><h2 class="h5">Traps by check status</h2>${countTable(state, "Status")}</div>
-      </div>`;
-    const sel = document.getElementById("grp");
-    sel.value = group;
-    sel.onchange = () => reportsPage(sel.value);
-    document.getElementById("csvRep").onclick = () => repRows.length
-      ? downloadCSV("catches-by-" + group + ".csv", repRows.map((r) => ({ [group]: r.label, catches: r.catches })))
-      : fail(new Error("There is nothing to export yet."));
-    const reportSections = [
-      {
-        title: "Catches by " + group,
-        columns: [{ key: group, label: group === "line" ? "Trap line" : "Month" }, { key: "catches", label: "Catches" }],
-        rows: repRows.length
-          ? repRows.map((r) => ({ [group]: r.label, catches: r.catches }))
-          : [{ [group]: "No data", catches: 0 }],
-      },
-      {
-        title: "Traps by last status",
-        columns: [{ key: "status", label: "Status" }, { key: "total", label: "Total" }],
-        rows: Object.entries(status).map(([label, total]) => ({ status: label, total })),
-      },
-      {
-        title: "Traps by check status",
-        columns: [{ key: "status", label: "Status" }, { key: "total", label: "Total" }],
-        rows: Object.entries(state).map(([label, total]) => ({ status: label, total })),
-      },
-    ];
-    document.getElementById("pdfRep").onclick = () => exportPDF("Catch and trap report", reportSections);
-    const trapExportRows = traps.map((t) => ({
-          code: t.code, trap_line: lineName[t.trap_line_id] || "", type: t.trap_type, area: t.general_area,
-          last_status: t.last_status || "", last_checked_at: t.last_checked_at || "", days_since_check: daysSince(t.last_checked_at) ?? "", check_state: trapState(t).label }));
-    const trapExportColumns = [
+    const [traps, lines, catches] = (await Promise.all([
+      api.getTraps(), api.getLines(), api.getCatches(),
+    ])).map(list);
+    const lineName = Object.fromEntries(lines.map((line) => [line.id, line.name]));
+    const lineArea = Object.fromEntries(lines.map((line) => [line.id, line.general_area]));
+    document.getElementById("reportLine").insertAdjacentHTML("beforeend",
+      lines.map((line) => `<option value="${esc(line.id)}">${esc(line.name)} — ${esc(line.general_area)}</option>`).join(""));
+
+    const localDate = (value) => {
+      const date = parseDate(value);
+      if (!date) return "";
+      return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+    };
+    const grouped = (items, keyFor) => {
+      const totals = {};
+      items.forEach((item) => {
+        const key = keyFor(item);
+        totals[key] = (totals[key] || 0) + 1;
+      });
+      return totals;
+    };
+    const filterData = () => {
+      const from = document.getElementById("reportFrom").value;
+      const to = document.getElementById("reportTo").value;
+      const lineId = document.getElementById("reportLine").value;
+      const selectedTraps = traps.filter((trap) => !lineId || String(trap.trap_line_id) === lineId);
+      const selectedCatches = catches.filter((item) => {
+        const day = localDate(item.recorded_at);
+        return (!lineId || String(item.trap_line_id) === lineId)
+          && (!from || day >= from) && (!to || day <= to);
+      });
+      return { from, to, selectedTraps, selectedCatches };
+    };
+    const dateTime = (value) => {
+      const date = parseDate(value);
+      return date ? date.toLocaleString("en-NZ", {
+        day: "numeric", month: "short", year: "numeric",
+        hour: "numeric", minute: "2-digit", hour12: true,
+      }) : "";
+    };
+    const trapColumns = [
       { key: "code", label: "Trap" }, { key: "trap_line", label: "Trap line" },
       { key: "type", label: "Type" }, { key: "area", label: "General area" },
-      { key: "last_status", label: "Last status" }, { key: "last_checked_at", label: "Last checked" },
-      { key: "days_since_check", label: "Days since check" }, { key: "check_state", label: "Check status" },
+      { key: "trap_status", label: "Trap status" }, { key: "last_status", label: "Last check result" },
+      { key: "last_checked_at", label: "Last checked" }, { key: "check_state", label: "Check status" },
     ];
-    document.getElementById("csvTraps").onclick = () => traps.length
-      ? downloadCSV("traps-" + new Date().toISOString().slice(0, 10) + ".csv", trapExportRows, trapExportColumns.map((column) => column.key))
-      : fail(new Error("There are no traps to export."));
-    document.getElementById("pdfTraps").onclick = () => traps.length
-      ? exportPDF("All traps", [{
-          columns: trapExportColumns,
-          rows: trapExportRows.map((row) => {
-            const date = parseDate(row.last_checked_at);
-            return {
-              ...row,
-              last_checked_at: date ? date.toLocaleString("en-NZ", {
-                day: "numeric", month: "short", year: "numeric",
-                hour: "numeric", minute: "2-digit", hour12: true,
-              }) : row.last_checked_at,
-            };
-          }),
-        }])
-      : fail(new Error("There are no traps to export."));
+    const render = () => {
+      const { from, to, selectedTraps, selectedCatches } = filterData();
+      if (from && to && from > to) {
+        document.getElementById("reportResults").innerHTML =
+          "<div class='alert alert-warning'>The start date must be on or before the end date.</div>";
+        ["csvRep", "pdfRep", "csvTraps", "pdfTraps"].forEach((id) => {
+          document.getElementById(id).disabled = true;
+        });
+        return;
+      }
+      ["csvRep", "pdfRep", "csvTraps", "pdfTraps"].forEach((id) => {
+        document.getElementById(id).disabled = false;
+      });
+
+      const groupBy = document.getElementById("grp").value;
+      const catchGroups = grouped(selectedCatches, (item) => groupBy === "month"
+        ? localDate(item.recorded_at).slice(0, 7)
+        : (lineName[item.trap_line_id] || item.trap_line || "Unknown"));
+      const species = grouped(selectedCatches, (item) => item.species || "Unknown");
+      const lastStatus = grouped(selectedTraps, (trap) => trap.last_status || "not checked yet");
+      const checkStatus = grouped(selectedTraps, (trap) => trapState(trap).label);
+      const overdue = selectedTraps.filter((trap) => trapState(trap).key === "overdue").length;
+      const neverChecked = selectedTraps.filter((trap) => trapState(trap).key === "never").length;
+      const maintenanceTraps = selectedTraps.filter((trap) =>
+        (trap.status || "active") !== "active" || needsAttention(trap));
+      const maintenanceRows = maintenanceTraps.map((trap) => `
+        <tr><td>${esc(trap.code)}</td><td>${esc(lineName[trap.trap_line_id] || "")}</td>
+        <td>${esc(trap.general_area || lineArea[trap.trap_line_id] || "")}</td>
+        <td>${esc((trap.status || "active").replace(/_/g, " "))}</td>
+        <td>${esc((trap.last_status || "none").replace(/_/g, " "))}</td>
+        <td>${esc(ago(trap.last_checked_at))}</td></tr>`).join("");
+      const trapRows = selectedTraps.map((trap) => ({
+        code: trap.code,
+        trap_line: lineName[trap.trap_line_id] || "",
+        type: trap.trap_type,
+        area: trap.general_area || lineArea[trap.trap_line_id] || "",
+        trap_status: (trap.status || "active").replace(/_/g, " "),
+        last_status: (trap.last_status || "").replace(/_/g, " "),
+        last_checked_at: dateTime(trap.last_checked_at),
+        check_state: trapState(trap).label,
+      }));
+      const maintenanceExportRows = maintenanceTraps.map((trap) => ({
+        code: trap.code,
+        trap_line: lineName[trap.trap_line_id] || "",
+        type: trap.trap_type,
+        area: trap.general_area || lineArea[trap.trap_line_id] || "",
+        trap_status: (trap.status || "active").replace(/_/g, " "),
+        last_status: (trap.last_status || "").replace(/_/g, " "),
+        last_checked_at: dateTime(trap.last_checked_at),
+        check_state: trapState(trap).label,
+      }));
+      const catchRows = selectedCatches.map((item) => ({
+        recorded_at: dateTime(item.recorded_at),
+        trap_line: lineName[item.trap_line_id] || item.trap_line || "",
+        trap: item.trap_code,
+        species: item.species,
+        recorded_by: item.recorded_by,
+      }));
+      const period = from || to
+        ? `Date range: ${from || "earliest"} to ${to || "latest"}`
+        : "Date range: all recorded data";
+      document.getElementById("reportResults").innerHTML = `
+        <p class="small text-secondary">${esc(period)} · ${selectedCatches.length} catches · ${selectedTraps.length} traps</p>
+        <div class="row g-3 mb-4">
+          ${card("Catches in range", selectedCatches.length)}
+          ${card("Overdue traps", overdue, "text-danger")}
+          ${card("Never checked", neverChecked)}
+          ${card("Maintenance needs", maintenanceTraps.length, "text-warning")}
+        </div>
+        <div class="row g-4">
+          <div class="col-lg-6"><h2 class="h5">Catches by ${groupBy === "line" ? "trap line" : "month"}</h2>${countTable(catchGroups, groupBy === "line" ? "Trap line" : "Month")}</div>
+          <div class="col-lg-6"><h2 class="h5">Catches by species</h2>${countTable(species, "Species")}</div>
+          <div class="col-lg-6"><h2 class="h5">Traps by last check result</h2>${countTable(lastStatus, "Result")}</div>
+          <div class="col-lg-6"><h2 class="h5">Traps by check schedule</h2>${countTable(checkStatus, "Schedule")}</div>
+          <div class="col-12"><h2 class="h5">Maintenance and follow-up</h2>
+            <div class="table-responsive"><table class="table"><thead><tr><th>Trap</th><th>Trap line</th><th>Area</th><th>Trap status</th><th>Last result</th><th>Last checked</th></tr></thead>
+            <tbody>${maintenanceRows || "<tr><td colspan='6'>No maintenance needs found.</td></tr>"}</tbody></table></div>
+          </div>
+        </div>`;
+
+      const catchGroupRows = Object.entries(catchGroups).map(([label, total]) => ({
+        label, catches: total,
+      }));
+      const countRows = (items) => Object.entries(items).map(([label, total]) => ({
+        label, total,
+      }));
+      document.getElementById("csvRep").onclick = () => catchRows.length
+        ? downloadCSV("filtered-catches.csv", catchRows)
+        : fail(new Error("There are no catches in this filter."));
+      document.getElementById("pdfRep").onclick = () => exportPDF(`Pest-Free field report — ${period}`, [
+        { title: `Catches by ${groupBy}`, columns: [{ key: "label", label: groupBy === "line" ? "Trap line" : "Month" }, { key: "catches", label: "Catches" }], rows: catchGroupRows },
+        { title: "Catches by species", columns: [{ key: "label", label: "Species" }, { key: "total", label: "Total" }], rows: countRows(species) },
+        { title: "Traps by last check result", columns: [{ key: "label", label: "Result" }, { key: "total", label: "Total" }], rows: countRows(lastStatus) },
+        { title: "Traps by check schedule", columns: [{ key: "label", label: "Schedule" }, { key: "total", label: "Total" }], rows: countRows(checkStatus) },
+        { title: "Maintenance and follow-up", columns: trapColumns, rows: maintenanceExportRows },
+      ]);
+      document.getElementById("csvTraps").onclick = () => trapRows.length
+        ? downloadCSV("filtered-traps.csv", trapRows, trapColumns.map((column) => column.key))
+        : fail(new Error("There are no traps in this filter."));
+      document.getElementById("pdfTraps").onclick = () => trapRows.length
+        ? exportPDF("Filtered traps", [{ columns: trapColumns, rows: trapRows }])
+        : fail(new Error("There are no traps in this filter."));
+    };
+    document.getElementById("grp").value = group;
+    ["reportFrom", "reportTo", "reportLine", "grp"].forEach((id) => {
+      document.getElementById(id).onchange = render;
+    });
+    render();
   } catch (err) { showError(err); }
 }
 
@@ -1044,10 +1358,12 @@ async function settingsPage() {
   if (window.PFNTheme) PFNTheme.set(PFNTheme.get());
   document.getElementById("out2").onclick = logout;
   document.getElementById("sync").onclick = async () => {
-    const r = await Outbox.flush();
+    const r = await flushOutboxWithConfirmation();
     document.getElementById("qn").textContent = Outbox.count();
-    success(r.sent ? r.sent + " uploaded" : "Nothing to upload");
+    if (r.sent) success(r.sent + " uploaded");
+    else if (!r.blocked && !r.failed.length) success("Nothing to upload");
     r.failed.forEach((f) => fail(new Error(f.label + ": " + f.error)));
+    if (r.blocked) fail(new Error(`${r.blocked} queued check${r.blocked === 1 ? " belongs" : "s belong"} to another account. Sign in with that account to sync it.`));
   };
   const inst = document.getElementById("install");
   if (window.deferredInstall) inst.classList.remove("d-none");
@@ -1083,6 +1399,10 @@ async function settingsPage() {
 const PAGES = { dashboard: dashboardPage, map: mapPage, reports: reportsPage, settings: settingsPage, check: checkPage, qr: qrPage };
 (async () => {
   me = await ensureUser();
+  if (isFieldWorker() && PAGE !== "check") {
+    shell("Field checks only", "<p class='text-secondary'>Your Field Worker account can access field checks only. <a href='check.html'>Go to Field check</a></p>");
+    return;
+  }
   if (COORD_ONLY.includes(PAGE) && !isCoord()) {
     shell("Coordinators only", "<p class='text-secondary'>Your volunteer account cannot open this page. <a href='dashboard.html'>Back to the dashboard</a></p>");
     return;
