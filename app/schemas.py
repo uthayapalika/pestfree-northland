@@ -45,6 +45,7 @@ class UserOut(BaseModel):
     email: str
     role: Role
     can_view_exact_location: bool
+    has_notification_topic: bool = False
 
 
 class LocationAccessIn(BaseModel):
@@ -62,6 +63,92 @@ class TrapLineOut(BaseModel):
     name: str
     general_area: str
     created_at: datetime
+
+
+class TrapLineAssignmentIn(BaseModel):
+    user_id: int
+
+
+class TrapLineAssignmentOut(BaseModel):
+    id: int
+    trap_line_id: int
+    user_id: int
+    user_name: str
+    assigned_by: int
+    assigned_at: datetime
+
+
+class FieldTaskIn(BaseModel):
+    trap_id: Optional[int] = None
+    trap_line_id: Optional[int] = None
+    assigned_to: int
+    title: str = Field(min_length=2, max_length=120)
+    notes: str = Field(default="", max_length=500)
+    due_at: Optional[datetime] = None
+
+
+class FieldTaskStatusIn(BaseModel):
+    status: Literal["open", "completed"]
+
+
+class FieldTaskOut(BaseModel):
+    id: int
+    trap_id: Optional[int]
+    trap_line_id: Optional[int]
+    trap_code: Optional[str]
+    trap_line: Optional[str]
+    assigned_to: int
+    assigned_name: str
+    assigned_by: int
+    title: str
+    notes: str
+    due_at: Optional[datetime]
+    status: Literal["open", "completed"]
+    created_at: datetime
+    completed_at: Optional[datetime]
+
+
+class NotificationTopicIn(BaseModel):
+    topic: Optional[str] = Field(
+        default=None,
+        min_length=16,
+        max_length=100,
+        pattern=r"^[A-Za-z0-9_-]{16,100}$",
+    )
+
+
+class AuditLogOut(BaseModel):
+    id: int
+    actor_id: Optional[int]
+    actor_name: str
+    action: str
+    entity_type: str
+    entity_id: int
+    changed_at: datetime
+    before: Optional[dict]
+    after: Optional[dict]
+
+
+class TrapImportRow(BaseModel):
+    trap_line: str = Field(min_length=2, max_length=80)
+    code: Optional[str] = Field(default=None, max_length=30)
+    trap_type: TrapType
+    general_area: Optional[str] = Field(default=None, max_length=120)
+    exact_lat: Optional[float] = Field(default=None, ge=-90, le=90)
+    exact_lng: Optional[float] = Field(default=None, ge=-180, le=180)
+    is_sensitive: bool = False
+    status: TrapStatus = "active"
+
+
+class TrapImportIn(BaseModel):
+    rows: list[TrapImportRow] = Field(min_length=1, max_length=500)
+    update_existing: bool = False
+
+
+class TrapImportResult(BaseModel):
+    created: int
+    updated: int
+    errors: list[str]
 
 
 class TrapIn(BaseModel):

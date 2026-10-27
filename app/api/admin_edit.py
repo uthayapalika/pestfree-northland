@@ -11,6 +11,12 @@ from sqlalchemy.orm import Session
 from app.api.deps import require_coordinator
 from app.db.database import Base, get_db
 from app.errors import ServiceError
+from app.services.audit import (
+    catch_snapshot,
+    record_audit,
+    trap_snapshot,
+    user_snapshot,
+)
 from app.schemas import Role, TrapIn
 
 router = APIRouter(tags=["Edit and delete"])
@@ -66,6 +72,7 @@ def update_trap(
     trap = db.get(_model("code", "trap_line_id"), trap_id)
     if not trap:
         raise ServiceError("Trap not found.", 404)
+    before = trap_snapshot(trap)
     if data.is_sensitive and (data.exact_lat is None or data.exact_lng is None):
         raise ServiceError("Sensitive traps need exact_lat and exact_lng.", 400)
     Trap = _model("code", "trap_line_id")
@@ -85,6 +92,8 @@ def update_trap(
     if data.status is not None:
         _set(trap, ("status",), data.status)
     _set(trap, ("recommended_bait",), BAIT[data.trap_type], required=False)
+    after = trap_snapshot(trap)
+    record_audit(db, user, "updated", "trap", trap_id, before, after)
     _commit(db, "Could not save: that trap code may already be used.")
     return {"id": trap_id, "updated": True}
 
@@ -98,6 +107,8 @@ def delete_trap(
     trap = db.get(_model("code", "trap_line_id"), trap_id)
     if not trap:
         raise ServiceError("Trap not found.", 404)
+    before = trap_snapshot(trap)
+    record_audit(db, user, "deleted", "trap", trap_id, before, None)
     # Remove this trap's check history first (catches belong to checks).
     Check = _model("checked_at", "notes", "trap_id")
     Catch = _model("species", "check_id")
@@ -131,12 +142,14 @@ def update_user(
     target = db.get(_model("email", "role"), user_id)
     if not target:
         raise ServiceError("User not found.", 404)
+    before = user_snapshot(target)
     if target.id == user.id and data.role != "coordinator":
         raise ServiceError("You cannot remove your own coordinator role.", 400)
     target.name = data.name
     target.email = data.email.strip()
     target.role = data.role
     target.can_view_exact_location = data.can_view_exact_location
+    record_audit(db, user, "updated", "user", user_id, before, user_snapshot(target))
     _commit(db, "That email is already used by another user.")
     return {"id": user_id, "updated": True}
 
@@ -155,5 +168,6 @@ def delete_user(
     Check = _model("checked_at", "notes", "trap_id")
     if db.query(Check).filter(Check.user_id == user_id).first():
         raise ServiceError("This user has recorded trap checks, so they cannot be deleted.", 409)
+    record_audit(db, user, "deleted", "user", user_id, user_snapshot(target), None)
     db.delete(target)
     _commit(db, "This user is still in use and cannot be deleted.")

@@ -26,6 +26,9 @@
 .chart-box { position: relative; height: 260px; }
 .table-filterbar .form-control,
 .table-filterbar .form-select { min-height: 44px; }
+.btn:not(.btn-sm), .form-control, .form-select { min-height: 44px; }
+.btn-sm { min-height: 38px; }
+.form-label { font-weight: 600; }
 .trap-location-map { height: 260px; overflow: hidden; }
 .nearby-trap-map { height: 320px; overflow: hidden; border: 1px solid var(--border); }
 

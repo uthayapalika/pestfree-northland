@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 from typing import Optional
 
-from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, JSON, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.database import Base
@@ -19,6 +19,11 @@ class UserModel(Base):
     password_hash: Mapped[str] = mapped_column(String(100))
     role: Mapped[str] = mapped_column(String(20))
     can_view_exact_location: Mapped[bool] = mapped_column(Boolean, default=False)
+    notification_topic: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+
+    @property
+    def has_notification_topic(self) -> bool:
+        return bool(self.notification_topic)
 
 
 class TrapLineModel(Base):
@@ -69,3 +74,42 @@ class CatchModel(Base):
     trap_id: Mapped[int] = mapped_column(ForeignKey("traps.id"))
     species: Mapped[str] = mapped_column(String(30))
     recorded_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+
+class AuditLogModel(Base):
+    __tablename__ = "audit_logs"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    actor_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    actor_name: Mapped[str] = mapped_column(String(80))
+    action: Mapped[str] = mapped_column(String(20))
+    entity_type: Mapped[str] = mapped_column(String(30))
+    entity_id: Mapped[int] = mapped_column(Integer)
+    changed_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, index=True)
+    before: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    after: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+
+
+class TrapLineAssignmentModel(Base):
+    __tablename__ = "trap_line_assignments"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    trap_line_id: Mapped[int] = mapped_column(ForeignKey("trap_lines.id"))
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
+    assigned_by: Mapped[int] = mapped_column(ForeignKey("users.id"))
+    assigned_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+
+class FieldTaskModel(Base):
+    __tablename__ = "field_tasks"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    trap_id: Mapped[Optional[int]] = mapped_column(ForeignKey("traps.id"), nullable=True)
+    trap_line_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("trap_lines.id"), nullable=True
+    )
+    assigned_to: Mapped[int] = mapped_column(ForeignKey("users.id"))
+    assigned_by: Mapped[int] = mapped_column(ForeignKey("users.id"))
+    title: Mapped[str] = mapped_column(String(120))
+    notes: Mapped[str] = mapped_column(String(500), default="")
+    due_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    status: Mapped[str] = mapped_column(String(20), default="open")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)

@@ -49,17 +49,27 @@ class Base(DeclarativeBase):
 def upgrade_legacy_schema(db_engine=engine) -> None:
     """Add newly required columns to databases created before schema upgrades existed."""
     inspector = inspect(db_engine)
-    if "traps" not in inspector.get_table_names():
-        return
-    columns = {column["name"] for column in inspector.get_columns("traps")}
-    if "status" not in columns:
-        with db_engine.begin() as connection:
-            connection.execute(
-                text(
-                    "ALTER TABLE traps ADD COLUMN status "
-                    "VARCHAR(30) NOT NULL DEFAULT 'active'"
+    tables = set(inspector.get_table_names())
+    with db_engine.begin() as connection:
+        if "traps" in tables:
+            columns = {
+                column["name"] for column in inspector.get_columns("traps")
+            }
+            if "status" not in columns:
+                connection.execute(
+                    text(
+                        "ALTER TABLE traps ADD COLUMN status "
+                        "VARCHAR(30) NOT NULL DEFAULT 'active'"
+                    )
                 )
-            )
+        if "users" in tables:
+            user_columns = {
+                column["name"] for column in inspector.get_columns("users")
+            }
+            if "notification_topic" not in user_columns:
+                connection.execute(
+                    text("ALTER TABLE users ADD COLUMN notification_topic VARCHAR(100)")
+                )
 
 
 def get_db():

@@ -25,3 +25,11 @@ _registration_setting = os.getenv("PUBLIC_REGISTRATION_ENABLED", _registration_d
 if _registration_setting not in {"true", "false"}:
     raise RuntimeError("PUBLIC_REGISTRATION_ENABLED must be 'true' or 'false'.")
 PUBLIC_REGISTRATION_ENABLED = _registration_setting == "true"
+
+DUE_AFTER_DAYS = int(os.getenv("DUE_AFTER_DAYS", "14"))
+OVERDUE_AFTER_DAYS = int(os.getenv("OVERDUE_AFTER_DAYS", "30"))
+if not 0 < DUE_AFTER_DAYS < OVERDUE_AFTER_DAYS:
+    raise RuntimeError(
+        "DUE_AFTER_DAYS and OVERDUE_AFTER_DAYS must be positive, "
+        "with DUE_AFTER_DAYS lower than OVERDUE_AFTER_DAYS."
+    )

@@ -4,7 +4,9 @@ from sqlalchemy.orm import Session
 from app.api.deps import get_current_user, require_coordinator
 from app.api.ntfy import notify
 from app.db.database import get_db
+from app.db.models import TrapModel
 from app.schemas import TrapIn, TrapLineIn, TrapLineOut, TrapOut
+from app.services.audit import record_audit, trap_snapshot
 from app.services.trap_service import TrapService
 
 router = APIRouter(prefix="/trap-lines", tags=["Trap lines and traps"])
@@ -31,6 +33,16 @@ def add_trap(
     user=Depends(require_coordinator),
 ):
     trap = TrapService(db).create_trap(user, line_id, data)
+    record_audit(
+        db,
+        user,
+        "created",
+        "trap",
+        trap["id"],
+        None,
+        trap_snapshot(db.get(TrapModel, trap["id"])),
+    )
+    db.commit()
     # Alert goes out AFTER the trap is saved and the reply is sent (no location in the message).
     background_tasks.add_task(notify, "New trap added", f"Trap {trap['code']} ({data.trap_type}) was added", tags=["pushpin"])
     return trap
