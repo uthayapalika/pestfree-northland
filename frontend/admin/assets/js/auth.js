@@ -37,19 +37,16 @@
     return;
   }
 
-  if (page === "login" || page === "register") {
+  // Keep the register link visible on the login page. It lets people reach
+  // the registration page even when public registration is currently closed.
+  if (page === "register") {
     apiRequest("/auth/registration-status").then(({ enabled }) => {
       if (enabled) return;
-      document.querySelectorAll('a[href="register.html"]').forEach((link) => link.remove());
-      if (page === "register") {
-        document.getElementById("af").innerHTML =
-          '<div class="card-body"><h1 class="h2">Registration is closed</h1>' +
-          '<p class="text-secondary">Ask a coordinator to create your account.</p>' +
-          '<a href="login.html">Return to sign in</a></div>';
-      }
-    }).catch((err) => {
-      if (page === "register") showMessage(err.message, "danger");
-    });
+      document.getElementById("af").innerHTML =
+        '<div class="card-body"><h1 class="h2">Registration is closed</h1>' +
+        '<p class="text-secondary">Ask a coordinator to create your account.</p>' +
+        '<a href="login.html">Return to sign in</a></div>';
+    }).catch((err) => showMessage(err.message, "danger"));
   }
 
   // ---------- Login form ----------
