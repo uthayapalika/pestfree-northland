@@ -11,19 +11,11 @@ def test_register_login_and_me(client):
     assert "password" not in me and "password_hash" not in me
 
 
-def test_public_registration_can_be_disabled(client, monkeypatch):
-    monkeypatch.setattr(auth_api, "PUBLIC_REGISTRATION_ENABLED", False)
-    assert client.get("/auth/registration-status").json() == {"enabled": False}
-    response = client.post(
-        "/auth/register",
-        json={"name": "New User", "email": "new@example.com", "password": "Passw0rd123"},
-    )
-    assert response.status_code == 403
-    assert "disabled" in response.json()["detail"]
+def test_public_registration_is_always_enabled(client):
+    assert client.get("/auth/registration-status").json() == {"enabled": True}
 
 
 def test_hosted_public_registration_cannot_create_coordinator(client, monkeypatch):
-    monkeypatch.setattr(auth_api, "PUBLIC_REGISTRATION_ENABLED", True)
     monkeypatch.setattr(auth_api, "IS_RENDER", True)
     response = client.post(
         "/auth/register",

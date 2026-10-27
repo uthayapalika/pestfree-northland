@@ -16,10 +16,9 @@ The database entity-relationship diagram is in [docs/erd.md](docs/erd.md).
 Use a unique `SECRET_KEY` and a persistent PostgreSQL database for a hosted
 deployment. Set `DATABASE_URL` and `SECRET_KEY` in the hosting provider's
 environment settings; never commit them. SQLite is intended for local use.
-Public registration is enabled locally and disabled by default on Render. To
-enable volunteer self-registration on Render, set `PUBLIC_REGISTRATION_ENABLED`
-to `true`; hosted public sign-up cannot create coordinator accounts. Create an
-initial coordinator from a trusted shell connected to the configured database:
+Public volunteer sign-up is enabled for both local and hosted deployments;
+hosted public sign-up cannot create coordinator accounts. Create an initial
+coordinator from a trusted shell connected to the configured database:
 `python -m app.create_coordinator --name "Coordinator Name" --email "name@example.com`.
 The command prompts for the password without putting it in shell history.
 
