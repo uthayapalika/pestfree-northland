@@ -4,7 +4,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_current_user, require_coordinator
+from app.api.deps import get_current_user, require_coordinator, require_non_field_worker
 from app.api.ntfy import notify
 from app.db.database import get_db
 from app.db.models import (
@@ -37,9 +37,17 @@ def record_catch(
 
 
 @catches_router.get("", response_model=list[CatchListOut])
-def list_catches(db: Session = Depends(get_db), _=Depends(get_current_user)):
+def list_catches(
+    db: Session = Depends(get_db), _=Depends(require_non_field_worker)
+):
     rows = db.execute(
-        select(CatchModel, TrapModel.code, TrapLineModel.name, UserModel.name)
+        select(
+            CatchModel,
+            TrapModel.code,
+            TrapModel.trap_line_id,
+            TrapLineModel.name,
+            UserModel.name,
+        )
         .join(TrapModel, CatchModel.trap_id == TrapModel.id)
         .join(TrapLineModel, TrapModel.trap_line_id == TrapLineModel.id)
         .join(TrapCheckModel, CatchModel.check_id == TrapCheckModel.id)
@@ -54,10 +62,11 @@ def list_catches(db: Session = Depends(get_db), _=Depends(get_current_user)):
             "species": catch.species,
             "recorded_at": catch.recorded_at,
             "trap_code": trap_code,
+            "trap_line_id": trap_line_id,
             "trap_line": trap_line,
             "recorded_by": recorded_by,
         }
-        for catch, trap_code, trap_line, recorded_by in rows
+        for catch, trap_code, trap_line_id, trap_line, recorded_by in rows
     ]
 
 

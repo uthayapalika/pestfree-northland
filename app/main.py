@@ -8,13 +8,14 @@ from fastapi.staticfiles import StaticFiles
 from app.api import admin_edit, auth, checks, ntfy, reports, trap_lines, traps, users
 from app.config import BASE_DIR
 from app.db import models  # noqa: F401  (registers the tables)
-from app.db.database import Base, engine
+from app.db.database import Base, engine, upgrade_legacy_schema
 from app.errors import ServiceError
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     Base.metadata.create_all(bind=engine)
+    upgrade_legacy_schema()
     yield
 
 

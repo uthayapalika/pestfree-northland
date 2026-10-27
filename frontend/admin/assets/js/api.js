@@ -22,7 +22,7 @@ function getUser() {
 function logout() {
   localStorage.removeItem("token");
   localStorage.removeItem("user");
-  if (window.caches) caches.delete("pestfree-api"); // forget cached data for the next person on this device
+  if (window.caches) caches.delete("pestfree-api-private-v2"); // forget cached data for the next person on this device
   window.location.href = "login.html";
 }
 
@@ -144,6 +144,10 @@ const api = {
   getUsers: usersApi.list, addUser: usersApi.add, updateUser: usersApi.update, deleteUser: usersApi.remove,
   // ---- Checks and catches (this API creates a catch inside a check) ----
   getTrapChecks: (trapId) => apiRequest("/traps/" + trapId + "/checks"),
+  getTrapHistory: (trapId) => apiRequest("/traps/" + trapId + "/history"),
+  getTrapMaintenance: (trapId) => apiRequest("/traps/" + trapId + "/maintenance"),
+  addTrapMaintenance: (trapId, data) =>
+    apiRequest("/traps/" + trapId + "/maintenance", "POST", data),
   addCheck: (trapId, data) => apiRequest("/traps/" + trapId + "/checks", "POST", data),
   addCatchToCheck: (checkId, species) => apiRequest("/checks/" + checkId + "/catches", "POST", { species }),
   getReport: (group = "line") => apiRequest("/reports/catches?group=" + group), // group = "line" or "month"
@@ -171,27 +175,48 @@ const Outbox = {
   },
   count() { return this.all().length; },
   // job = { path, body, label }
-  add(job) { this.save([...this.all(), { ...job, queued_at: new Date().toISOString() }]); },
+  add(job) {
+    const userId = getUser().id;
+    if (!userId) throw new Error("Cannot queue this check without a signed-in user.");
+    this.save([...this.all(), {
+      ...job,
+      owner_id: userId,
+      queued_at: new Date().toISOString(),
+    }]);
+  },
   // Send everything waiting. Stops quietly if the signal is still missing.
-  async flush() {
-    const result = { sent: 0, failed: [] };
+  async flush({ includeUnassigned = false } = {}) {
+    const result = { sent: 0, failed: [], blocked: 0, unassigned: 0 };
     if (this.busy || !navigator.onLine || !getToken()) return result;
     this.busy = true;
     try {
-      let items = this.all();
-      while (items.length) {
-        const job = items[0];
+      const ownerId = getUser().id;
+      const items = this.all();
+      const remaining = [];
+      for (let index = 0; index < items.length; index++) {
+        const job = items[index];
+        if (!ownerId || (job.owner_id && String(job.owner_id) !== String(ownerId))) {
+          result.blocked++;
+          remaining.push(job);
+          continue;
+        }
+        if (!job.owner_id && !includeUnassigned) {
+          result.unassigned++;
+          remaining.push(job);
+          continue;
+        }
         try {
           await apiRequest(job.path, "POST", job.body);
           result.sent++;
         } catch (err) {
-          if (err instanceof TypeError) break;               // still no signal - try again later
-          if (String(err.message).startsWith("401")) break;  // logged out - keep the job
-          result.failed.push({ label: job.label, error: err.message }); // server refused it - do not retry forever
+          if (err instanceof TypeError || String(err.message).startsWith("401")) {
+            remaining.push(...items.slice(index));
+            break;
+          }
+          result.failed.push({ label: job.label, error: err.message });
         }
-        items = items.slice(1);
-        this.save(items);
       }
+      this.save(remaining);
     } finally { this.busy = false; }
     return result;
   },

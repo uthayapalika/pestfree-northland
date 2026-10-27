@@ -5,7 +5,13 @@
   // Service workers need https (or localhost).
   const secure = location.protocol === "https:" || ["localhost", "127.0.0.1"].includes(location.hostname);
   if ("serviceWorker" in navigator && secure) {
-    window.addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(() => {}));
+    window.addEventListener("load", () => navigator.serviceWorker.register("sw.js")
+      .catch((err) => console.error("Offline support could not start:", err)));
+  }
+  if (navigator.storage && navigator.storage.persist) {
+    navigator.storage.persist().then((granted) => {
+      if (!granted) console.warn("The browser may clear offline data when device storage is low.");
+    }).catch((err) => console.warn("Could not request persistent offline storage:", err));
   }
 
   // Remember the browser's "install app" offer (the Settings page shows the button).
@@ -42,6 +48,10 @@
       showConfirmButton: false, timer: 3000, background: "#10201b", color: "#e8f0ec" });
     if (r.failed.length) Swal.fire({ icon: "error", title: "Some checks were refused", background: "#10201b", color: "#e8f0ec",
       text: r.failed.map((f) => f.label + ": " + f.error).join(" | ") });
+    if (r.blocked) Swal.fire({ icon: "warning", title: "Some checks are for another account", background: "#10201b", color: "#e8f0ec",
+      text: `${r.blocked} queued check${r.blocked === 1 ? " is" : "s are"} kept on this device and will only sync when that account signs in.` });
+    if (r.unassigned) Swal.fire({ icon: "warning", title: "Older checks need review", background: "#10201b", color: "#e8f0ec",
+      text: `${r.unassigned} check${r.unassigned === 1 ? " was" : "s were"} saved before account-specific syncing. Open Field check and choose Sync now to review before uploading.` });
   }
 
   window.addEventListener("online", () => { showNet(); sync(); });

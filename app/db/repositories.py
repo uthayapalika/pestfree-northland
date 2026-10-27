@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.db.models import (
     CatchModel,
+    TrapMaintenanceModel,
     TrapCheckModel,
     TrapLineModel,
     TrapModel,
@@ -86,6 +87,7 @@ class TrapRepository:
             exact_lat=row.exact_lat,
             exact_lng=row.exact_lng,
             is_sensitive=row.is_sensitive,
+            status=row.status,
         )
 
     def add(
@@ -97,6 +99,7 @@ class TrapRepository:
         exact_lat,
         exact_lng,
         is_sensitive,
+        status="active",
     ) -> Trap:
         row = TrapModel(
             trap_line_id=trap_line_id,
@@ -106,6 +109,7 @@ class TrapRepository:
             exact_lat=exact_lat,
             exact_lng=exact_lng,
             is_sensitive=is_sensitive,
+            status=status,
         )
         self.db.add(row)
         self.db.flush()
@@ -168,6 +172,33 @@ class CheckRepository:
         )
         return list(self.db.scalars(stmt))
 
+    def history_for_trap(self, trap_id: int) -> list[dict]:
+        checks = self.db.execute(
+            select(TrapCheckModel, UserModel.name)
+            .join(UserModel, TrapCheckModel.user_id == UserModel.id)
+            .where(TrapCheckModel.trap_id == trap_id)
+            .order_by(TrapCheckModel.checked_at.desc(), TrapCheckModel.id.desc())
+        )
+        catches_by_check: dict[int, list[str]] = {}
+        catches = self.db.execute(
+            select(CatchModel.check_id, CatchModel.species).where(
+                CatchModel.trap_id == trap_id
+            )
+        )
+        for check_id, species in catches:
+            catches_by_check.setdefault(check_id, []).append(species)
+
+        return [
+            {
+                "checked_at": check.checked_at,
+                "status": check.status,
+                "notes": check.notes,
+                "recorded_by": recorded_by,
+                "species": catches_by_check.get(check.id, []),
+            }
+            for check, recorded_by in checks
+        ]
+
     def last_for_trap(self, trap_id: int) -> Optional[TrapCheckModel]:
         rows = self.list_for_trap(trap_id)
         return rows[0] if rows else None
@@ -191,3 +222,42 @@ class CheckRepository:
             .join(CatchModel, CatchModel.trap_id == TrapModel.id)
         )
         return [(name, when) for name, when in self.db.execute(stmt)]
+
+
+class TrapMaintenanceRepository:
+    def __init__(self, db: Session):
+        self.db = db
+
+    def add(
+        self, trap_id: int, user_id: int, notes: str, performed_at: Optional[datetime]
+    ) -> TrapMaintenanceModel:
+        record = TrapMaintenanceModel(
+            trap_id=trap_id,
+            user_id=user_id,
+            notes=notes,
+        )
+        if performed_at is not None:
+            record.performed_at = performed_at
+        self.db.add(record)
+        self.db.commit()
+        self.db.refresh(record)
+        return record
+
+    def list_for_trap(self, trap_id: int) -> list[dict]:
+        rows = self.db.execute(
+            select(TrapMaintenanceModel, UserModel.name)
+            .join(UserModel, TrapMaintenanceModel.user_id == UserModel.id)
+            .where(TrapMaintenanceModel.trap_id == trap_id)
+            .order_by(
+                TrapMaintenanceModel.performed_at.desc(),
+                TrapMaintenanceModel.id.desc(),
+            )
+        )
+        return [
+            {
+                "performed_at": record.performed_at,
+                "notes": record.notes,
+                "recorded_by": recorded_by,
+            }
+            for record, recorded_by in rows
+        ]

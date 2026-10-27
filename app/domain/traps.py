@@ -5,13 +5,22 @@ class Trap(ABC):
     """Abstract base class for all trap types."""
 
     def __init__(
-        self, id, code, trap_line_id, general_area, exact_lat, exact_lng, is_sensitive
+        self,
+        id,
+        code,
+        trap_line_id,
+        general_area,
+        exact_lat,
+        exact_lng,
+        is_sensitive,
+        status="active",
     ):
         self.id = id
         self.code = code
         self.trap_line_id = trap_line_id
         self.general_area = general_area
         self.is_sensitive = is_sensitive
+        self.status = status
         self.__lat = exact_lat  # private: name-mangled (encapsulation)
         self.__lng = exact_lng
 

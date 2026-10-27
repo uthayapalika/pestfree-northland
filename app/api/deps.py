@@ -24,3 +24,11 @@ def require_coordinator(user: UserModel = Depends(get_current_user)) -> UserMode
     if user.role != "coordinator":
         raise ServiceError("Coordinator access required.", 403)
     return user
+
+
+def require_non_field_worker(
+    user: UserModel = Depends(get_current_user),
+) -> UserModel:
+    if user.role == "field_worker":
+        raise ServiceError("Field Worker accounts can access field checks only.", 403)
+    return user

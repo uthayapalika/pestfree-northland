@@ -31,10 +31,25 @@
     return;
   }
 
-  // Already logged in but opened login/register? Go to the dashboard.
+  // Already logged in but opened login/register? Send field workers to field checks.
   if ((page === "login" || page === "register") && getToken()) {
-    window.location.href = "dashboard.html";
+    window.location.href = getUser().role === "field_worker" ? "check.html" : "dashboard.html";
     return;
+  }
+
+  if (page === "login" || page === "register") {
+    apiRequest("/auth/registration-status").then(({ enabled }) => {
+      if (enabled) return;
+      document.querySelectorAll('a[href="register.html"]').forEach((link) => link.remove());
+      if (page === "register") {
+        document.getElementById("af").innerHTML =
+          '<div class="card-body"><h1 class="h2">Registration is closed</h1>' +
+          '<p class="text-secondary">Ask a coordinator to create your account.</p>' +
+          '<a href="login.html">Return to sign in</a></div>';
+      }
+    }).catch((err) => {
+      if (page === "register") showMessage(err.message, "danger");
+    });
   }
 
   // ---------- Login form ----------
@@ -46,7 +61,7 @@
           document.getElementById("email").value.trim(),
           document.getElementById("password").value
         );
-        window.location.href = "dashboard.html"; // success
+        window.location.href = getUser().role === "field_worker" ? "check.html" : "dashboard.html";
       } catch (err) {
         showMessage(err.message, "danger"); // wrong password, server down, etc.
       }
