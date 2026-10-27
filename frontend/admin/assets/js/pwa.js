@@ -222,7 +222,7 @@
       if (r.failed && r.failed.length) {
         Swal.fire({
           icon: "error",
-          title: "Some checks were refused",
+          title: "Some checks could not be uploaded",
           background: "#10201b",
           color: "#e8f0ec",
           text: r.failed
