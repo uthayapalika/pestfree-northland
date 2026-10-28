@@ -77,16 +77,34 @@ Restore asks for confirmation and creates a timestamped pre-restore copy before
 replacing the configured SQLite database. Stop the app before restoring. This
 utility supports file-based SQLite only.
 
-For Render PostgreSQL, use the database service's **Recovery** page. Paid
-PostgreSQL instances provide point-in-time recovery (currently 3 days on Hobby
-and 7 days on Pro or higher); free instances do not. Trigger recovery to a new
-database, validate the restored data, and only then update the web service's
-`DATABASE_URL`. Do not restore an export over a database containing important
-data. Create and download logical exports periodically for long-term retention;
-Render retains exports for 7 days. For free databases, use `pg_dump` from a
-trusted machine or a scheduled backup job that stores encrypted backups in
-separate storage. Follow the [Render PostgreSQL backup and recovery guide](https://render.com/docs/postgresql-backups)
-for current steps and restore commands.
+For Render PostgreSQL, use the database service's **Recovery** page for native
+point-in-time recovery. A separate automatic database archive is also included
+in the application:
+
+1. Attach a Render persistent disk to the web service and mount it at
+   `/var/data/pestfree-backups` (for example, 1 GB in the Render dashboard).
+2. Set the web service environment variables:
+   - `BACKUP_DIR=/var/data/pestfree-backups`
+   - `BACKUP_CRON_TOKEN=<a long random secret>`
+   - `BACKUP_RETENTION_COUNT=30`
+3. Set the same `BACKUP_CRON_TOKEN` value on the `pestfree-northland-daily-backup`
+   cron service.
+4. Set the cron service `BACKUP_BASE_URL` to the public HTTPS URL of the web
+   service, for example `https://pestfree-northland.onrender.com`.
+5. Apply [render.yaml](render.yaml) or create the cron job manually. It runs at
+   `02:00 UTC` every day and calls the coordinator-authorized backup API.
+
+Coordinators can list and download archives from `POST /backups/create`,
+`GET /backups`, and `GET /backups/{filename}`. The automatic cron job uses the
+separate `X-Backup-Cron-Key` secret rather than a user account. New archives
+are created as atomic ZIP files containing table JSON and a manifest. The
+retention job deletes all but the newest 30 files. These ZIP files contain
+password hashes, personal information, and exact-location data; restrict disk,
+API, and download access and keep them encrypted during any external transfer.
+
+The API archive is an additional logical backup, not a replacement for
+Render's native recovery. Follow the [Render PostgreSQL backup and recovery guide](https://render.com/docs/postgresql-backups)
+for native point-in-time recovery and restore procedures.
 
 The admin pages use the API in `app/` and default to the same origin as the
 web app. If you host the frontend separately, set `apiBase` in
