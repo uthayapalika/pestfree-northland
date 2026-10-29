@@ -5,6 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
+from app import backups
 from app.api import (
     admin_edit,
     audit,
@@ -56,6 +57,7 @@ def health():
 # ntfy = push notifications (alerts to the ntfy phone app)
 for module in (
     auth,
+    backups,
     users,
     trap_lines,
     traps,
