@@ -1425,7 +1425,12 @@ async function checkPage() {
   let traps = [], lines = [];
   try { [traps, lines] = (await Promise.all([api.getTraps(), api.getLines()])).map(list); } catch (err) { return showError(err); }
   const lineName = Object.fromEntries(lines.map((l) => [l.id, l.name]));
-  const STATUS = [["empty", "Empty", "check-circle"], ["caught", "Caught", "bug-fill"], ["bait_needed", "Bait needed", "basket"], ["sprung", "Sprung", "exclamation-triangle"]];
+  const STATUS = [
+    ["empty", "Empty", "check-circle", "Checked and found no catch."],
+    ["caught", "Caught", "bug-fill", "A pest was caught in the trap."],
+    ["bait_needed", "Bait needed", "basket", "The trap needs fresh bait."],
+    ["sprung", "Sprung", "exclamation-triangle", "The trap has been triggered."],
+  ];
   const S = {
     trap: null, status: "", species: "", notes: "", q: "", near: false, saving: false,
     nearMap: false, nearMessage: "", userPoint: null,
@@ -1515,18 +1520,51 @@ async function checkPage() {
         <div id="list">${listHtml()}</div>`;
     } else {
       const t = S.trap, ready = S.status && (S.status !== "caught" || S.species);
+      const lastStatus = STATUS.find(([value]) => value === t.last_status);
+      const previousCheck = t.last_checked_at
+        ? `${ago(t.last_checked_at)}${lastStatus ? ` · ${lastStatus[1]}` : ""}`
+        : "No check recorded yet";
+      const saveHint = !S.status
+        ? "Choose a result above to continue."
+        : S.status === "caught" && !S.species
+          ? "Choose the animal caught to continue."
+          : "Check the details, then save this visit.";
       html += `<button class="btn btn-sm btn-outline-secondary mb-3" data-act="back"><i class="bi bi-arrow-left"></i> Choose another trap</button>
         <div class="card mb-3"><div class="card-body">
           <div class="d-flex justify-content-between align-items-start"><div><div class="h3 mb-0">${esc(t.code)}</div>
             <div class="text-secondary small">${esc(lineName[t.trap_line_id] || "")} - ${esc(t.trap_type)} - ${esc(t.general_area)}${t._d != null ? " - " + esc(fmtDist(t._d)) + " away" : ""}</div></div>${stateBadge(t)}</div>
-          <div class="small mt-2">Last check: ${esc(ago(t.last_checked_at))}${t.last_status ? " (" + esc(t.last_status.replace("_", " ")) + ")" : ""}</div>
-          <div class="small text-secondary">Suggested bait: ${esc(t.recommended_bait)}</div></div></div>
-        <h2 class="h6">What did you find?</h2>
-        <div class="row g-2 mb-3">${STATUS.map(([v, l, i]) => `<div class="col-6"><button class="tile ${S.status === v ? "active" : ""}" data-act="status" data-v="${v}"><i class="bi bi-${i}"></i><br>${l}</button></div>`).join("")}</div>
-        ${S.status === "caught" ? `<h2 class="h6">What was caught?</h2><div class="row g-2 mb-3">${FIXED.species.map((o) =>
-          `<div class="col-4"><button class="tile ${S.species === o.value ? "active" : ""}" style="min-height:60px;padding:.6rem" data-act="species" data-v="${esc(o.value)}">${esc(o.label)}</button></div>`).join("")}</div>` : ""}
-        <textarea id="notes" class="form-control mb-3" rows="2" maxlength="500" placeholder="Notes (optional)">${esc(S.notes)}</textarea>
-        <button class="btn btn-primary btn-lg w-100 py-3" data-act="save" ${ready && !S.saving ? "" : "disabled"}>Save check</button>`;
+          <div class="field-check-previous mt-3" role="status">
+            <i class="bi bi-clock-history" aria-hidden="true"></i>
+            <span><strong>Previous visit:</strong> ${esc(previousCheck)}</span>
+          </div>
+          <div class="small text-secondary mt-2">Suggested bait: ${esc(t.recommended_bait)}</div></div></div>
+        <section class="field-check-step mb-3" aria-labelledby="check-result-heading">
+          <div class="field-check-step-heading"><span class="field-check-step-number">1</span><h2 id="check-result-heading" class="h6 mb-0">For this visit, what did you find?</h2></div>
+          <p class="small text-secondary mt-2 mb-3">Choose one result from what you see now. The previous visit above is history and is not selected for you.</p>
+          <div class="row g-2" role="group" aria-label="Choose the result of this trap check">
+            ${STATUS.map(([v, l, i, description]) => `<div class="col-6"><button type="button" class="tile field-result-option ${S.status === v ? "active" : ""}" data-act="status" data-v="${v}" aria-pressed="${S.status === v}">
+              <span class="field-result-title"><i class="bi bi-${i}" aria-hidden="true"></i><span>${l}</span>${S.status === v ? `<span class="field-result-selected"><i class="bi bi-check2" aria-hidden="true"></i> Selected</span>` : ""}</span>
+              <small>${description}</small>
+            </button></div>`).join("")}
+          </div>
+        </section>
+        ${S.status === "caught" ? `<section class="field-check-step mb-3" aria-labelledby="check-species-heading">
+          <div class="field-check-step-heading"><span class="field-check-step-number">2</span><h2 id="check-species-heading" class="h6 mb-0">What animal was caught?</h2></div>
+          <p class="small text-secondary mt-2 mb-3">Select the animal so it is included in the catch record.</p>
+          <div class="row g-2" role="group" aria-label="Choose the animal caught">
+            ${FIXED.species.map((o) => {
+              const label = o.label.charAt(0).toUpperCase() + o.label.slice(1);
+              return `<div class="col-6 col-sm-4"><button type="button" class="tile field-species-option ${S.species === o.value ? "active" : ""}" data-act="species" data-v="${esc(o.value)}" aria-pressed="${S.species === o.value}">
+                ${esc(label)}${S.species === o.value ? `<span class="field-result-selected"><i class="bi bi-check2" aria-hidden="true"></i> Selected</span>` : ""}
+              </button></div>`;
+            }).join("")}
+          </div>
+        </section>` : ""}
+        <label class="form-label" for="notes">Notes <span class="text-secondary fw-normal">(optional)</span></label>
+        <textarea id="notes" class="form-control mb-3" rows="3" maxlength="500" aria-describedby="check-notes-help" placeholder="Add anything useful, such as bait replaced or trap condition.">${esc(S.notes)}</textarea>
+        <div id="check-notes-help" class="form-text mb-3">Up to 500 characters. Do not include sensitive location details in notes.</div>
+        <button class="btn btn-primary btn-lg w-100 py-3" data-act="save" aria-describedby="check-save-help" ${ready && !S.saving ? "" : "disabled"}>${S.saving ? "Saving check..." : "Save this check"}</button>
+        <p id="check-save-help" class="small text-secondary text-center mt-2" aria-live="polite">${S.saving ? "Please wait while your check is saved." : saveHint}</p>`;
     }
     box.innerHTML = html;
     drawNearbyMap();

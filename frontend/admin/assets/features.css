@@ -23,6 +23,90 @@
 .tile i { font-size: 1.7rem; color: var(--accent); }
 .tile.list { min-height: 0; margin-bottom: .6rem; font-size: 1rem; text-align: left; }
 
+.field-check-previous {
+  display: flex;
+  align-items: flex-start;
+  gap: .55rem;
+  padding: .7rem .85rem;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+  font-size: .9rem;
+}
+.field-check-previous > i { color: var(--accent); }
+.field-check-step {
+  padding: 1rem;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--surface) 72%, transparent);
+}
+.field-check-step-heading {
+  display: flex;
+  align-items: center;
+  gap: .65rem;
+}
+.field-check-step-number {
+  display: inline-grid;
+  width: 1.65rem;
+  height: 1.65rem;
+  flex: 0 0 auto;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--accent);
+  color: var(--accent-ink);
+  font-weight: 700;
+}
+.tile.field-result-option {
+  display: flex;
+  min-height: 112px;
+  flex-direction: column;
+  justify-content: center;
+  gap: .45rem;
+  padding: .8rem;
+  text-align: left;
+}
+.field-result-title {
+  display: flex;
+  align-items: center;
+  gap: .55rem;
+  font-weight: 700;
+}
+.tile.field-result-option .field-result-title > i {
+  flex: 0 0 auto;
+  font-size: 1.35rem;
+}
+.field-result-option small {
+  color: var(--muted);
+  font-size: .8rem;
+  line-height: 1.35;
+}
+.field-result-selected {
+  display: inline-flex;
+  align-items: center;
+  gap: .2rem;
+  margin-left: auto;
+  padding: .15rem .4rem;
+  border-radius: 999px;
+  background: var(--accent);
+  color: var(--accent-ink);
+  font-size: .7rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.tile.field-result-option .field-result-selected > i { color: inherit; font-size: .8rem; }
+.tile.field-species-option {
+  display: flex;
+  min-height: 62px;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: .3rem;
+  padding: .65rem;
+  font-size: 1rem;
+  font-weight: 600;
+}
+.field-species-option .field-result-selected { margin: 0; }
+
 .chart-box { position: relative; height: 260px; }
 .table-filterbar .form-control,
 .table-filterbar .form-select { min-height: 44px; }
@@ -82,4 +166,7 @@
   .table-filterbar select { font-size: 16px; }
   .table-filterbar .btn { min-height: 44px; }
   .tile.list { padding: .85rem; }
+  .field-check-step { padding: .8rem; }
+  .tile.field-result-option { min-height: 120px; padding: .65rem; }
+  .field-result-title { flex-wrap: wrap; }
 }

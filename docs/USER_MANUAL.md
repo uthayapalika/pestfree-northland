@@ -135,14 +135,15 @@ HTTPS or localhost is required for browser location access. If the browser block
 1. Open **Field check**.
 2. Search for a trap by code, line or general area.
 3. Select a trap from the list.
-4. Choose the result:
+4. Review the **Previous visit** information. It shows the last saved result as history; it does not select a result for the new visit.
+5. Under **For this visit, what did you find?**, choose one result:
    - Empty
    - Caught
    - Bait needed
    - Sprung
-5. If the catch result is **Caught**, select a species.
-6. Add optional notes.
-7. Select **Save check**.
+6. If the result is **Caught**, choose the animal caught. The save button stays disabled until you choose a result and, for a catch, its species.
+7. Add optional notes.
+8. Select **Save this check**.
 
 For a caught trap, this process creates a catch linked to the check.
 
