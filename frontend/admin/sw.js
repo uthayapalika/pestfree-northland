@@ -4,7 +4,7 @@
 //   - lists the API already sent (traps, lines, catches) are shown from the saved copy when offline
 //   - map tiles you have looked at are saved too
 // Change VERSION when you edit the pages/scripts so phones pick up the new files.
-const VERSION = "v11";
+const VERSION = "v12";
 const SHELL = "pestfree-shell-" + VERSION;
 const CDN = "pestfree-cdn-v1";
 const API = "pestfree-api-private-v2"; // private responses are cached per authenticated token
