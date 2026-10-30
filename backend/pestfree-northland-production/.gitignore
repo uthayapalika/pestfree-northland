@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+*.db
+*.sqlite
+*.sqlite3
+.pytest_cache/
+.env
+.venv/
+backups/
+pestfree/
+requirements.old.txt

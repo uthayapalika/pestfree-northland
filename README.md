@@ -1,204 +1,67 @@
-# Pest-Free Tracker
+# PestFree Northland mobile app
 
-1. Create and activate an environment: `python -m venv .venv`
-2. Install dependencies: `pip install -r requirements.txt`
-3. For **local development only**, create the full sample database with
-   `python -m app.seed`. **This command deletes all data in the configured
-   database. Never run it on the hosted/production database.**
+Flutter field app for the Pest-Free Tracker API in the supplied production bundle. The mobile client uses the existing FastAPI routes and data contracts; it does not require a separate mobile backend.
 
-   To add the operational demo through an API instead (including inventory,
-   field tasks and assignments), start the server and run:
+## Included field workflows
 
-   ```powershell
-   python app/seed_demo.py http://127.0.0.1:8000 coordinator@example.com Coord1234
-   ```
+- Volunteer account registration and bearer-token sign-in.
+- Dashboard with trap line, trap, open task and attention-needed summaries.
+- Assigned trap lines and searchable traps, with line filters.
+- Record empty, caught, bait-needed or sprung checks; caught checks can record possum, rat, stoat, mouse, hedgehog or other.
+- Assigned field tasks, with completion and reopen actions.
+- **PestFree Neighbor Assist:** request a home visit or supply drop, then follow assignment and completion. Coordinators triage requests, assign volunteers and pick stock; stock movement is recorded when a delivery is completed.
+- Accessibility option for larger text throughout the signed-in field app.
+- Persistent on-device queue for checks submitted while offline. The queue syncs on a successful data refresh.
+- Profile, role display, refresh and sign out.
 
-   The same command can seed a Render deployment safely, by default:
+The server remains the source of truth for account roles, location access, trap data and task assignments. Public registration creates volunteer accounts, matching `/auth/register`.
 
-   ```powershell
-   python app/seed_demo.py https://pestfree-northland.onrender.com coordinator@example.com "your-password"
-   ```
+## Neighbor Assist workflow
 
-   Use the coordinator email/password for that server. The API seed is
-   non-destructive and skips existing records. `--reset` removes all trap lines,
-   traps and catches after confirmation; it does not delete inventory or tasks.
+An authenticated member can submit a request using a general area or suburb, a short description, an optional phone number and an optional preferred time. The form explicitly discourages entering an exact home address. Coordinators see and assign requests to volunteers or field workers. Supply requests must be assigned an in-stock inventory item and quantity. Completing a delivery atomically deducts that quantity and creates the backend's existing inventory movement record; an insufficient-stock conflict leaves the request open. Request visibility is limited to coordinators, the requester and the assigned volunteer. Audit records omit request descriptions and contact phone numbers.
 
-   Do not run `python -m app.seed` on Render. If you intentionally run it from
-   a Render Shell, it will replace the entire hosted database. A safer Render
-   seed is the API command above.
-4. Start the server: `python -m uvicorn app.main:app --reload`
-5. Open `http://127.0.0.1:8000/admin/login.html`; API docs are at
-   `http://127.0.0.1:8000/docs`.
+The Python implementation lives in [neighbor_assist.py](./backend/pestfree-northland-production/app/api/neighbor_assist.py), with the coordinator experience also available in the Flutter app. The backend auto-creates the new table at application startup through its existing SQLAlchemy `create_all` lifecycle.
 
-Run tests with `python -m pytest`.
+## Create native project scaffolding
 
-The database entity-relationship diagram is in [docs/erd.md](docs/erd.md).
+Install Flutter (Dart 3.3 or newer), then from this folder run:
 
-The local seed creates demo inventory, field tasks, trap-line assignments, and audit history. The offline sync page is stored on the signed-in browser rather than in the database, so inspect it with a clean browser profile or add representative local sync records by running this in the sync page's browser console:
-
-```javascript
-const userId = JSON.parse(localStorage.getItem("user")).id;
-const now = new Date().toISOString();
-localStorage.setItem("outbox", JSON.stringify([
-  { path: "/traps/1/checks", body: { status: "empty", notes: "Queued during demo" }, label: "BH-01 - empty", owner_id: userId, queued_at: now }
-]));
-localStorage.setItem("syncHistory", JSON.stringify([
-  { label: "BH-02 - caught", owner_id: userId, status: "failed", error: "Network offline", changed_at: now },
-  { label: "MP-01 - bait needed", owner_id: userId, status: "uploaded", changed_at: now }
-]));
-location.reload();
+```sh
+flutter create --platforms=android,ios .
+flutter pub get
+flutter run
 ```
 
-Use a unique `SECRET_KEY` and a persistent PostgreSQL database for a hosted
-deployment. Set `DATABASE_URL` and `SECRET_KEY` in the hosting provider's
-environment settings; never commit them. SQLite is intended for local use.
-Public volunteer sign-up is enabled for both local and hosted deployments;
-hosted public sign-up cannot create coordinator accounts. Create an initial
-coordinator from a trusted shell connected to the configured database:
-`python -m app.create_coordinator --name "Coordinator Name" --email "name@example.com`.
-The command prompts for the password without putting it in shell history.
+Open this folder in Android Studio or VS Code. Flutter generates the platform runner folders; `lib/` and `pubspec.yaml` here are the app source.
+The plain `flutter run` command uses the live Render API by default. Build an Android release APK with `flutter build apk --release`. iOS builds require macOS with Xcode.
 
-### Backup and recovery
+## API address
 
-For local SQLite databases, create a consistent snapshot with:
+The default API origin is the live Python FastAPI backend at `https://pestfree-northland.onrender.com`. The mobile app is a client of that backend; authentication, permissions, trap records, checks, catches and task state stay in Python and the existing database.
 
-```powershell
-python -m app.backup create --output "C:\secure-backups\pestfree.db"
+You can override the API origin at build or run time with `--dart-define=API_BASE_URL=...` (no trailing slash):
+
+```sh
+flutter run --dart-define=API_BASE_URL=http://10.0.2.2:8000
 ```
 
-Keep backups outside the repository, restrict access because they contain
-personal and exact-location data, and periodically test a recovery on a copy:
+- Android emulator to a backend on the development computer: `http://10.0.2.2:8000` (set this override when testing against a local backend).
+- iOS simulator: `http://127.0.0.1:8000`.
+- Physical phone: use the computer's LAN IP, for example `http://192.168.1.20:8000`, and ensure the phone can reach that port.
+- Hosted production API: the default above. Render's free service may take a short time to wake from idle before the first request succeeds.
 
-```powershell
-python -m app.backup restore --input "C:\secure-backups\pestfree.db"
-```
+For local HTTP testing, the generated Android runner may need cleartext traffic enabled in `android/app/src/main/AndroidManifest.xml` by setting `android:usesCleartextTraffic="true"` on the `<application>` element. Keep production traffic on HTTPS.
 
-Restore asks for confirmation and creates a timestamped pre-restore copy before
-replacing the configured SQLite database. Stop the app before restoring. This
-utility supports file-based SQLite only.
+## Run the backend
 
-For Render PostgreSQL, use the database service's **Recovery** page for native
-point-in-time recovery. A separate automatic database archive is also included
-in the application:
+The Python FastAPI backend is the primary application service. Keep the deployed service and database as the source of truth; the Flutter app does not duplicate backend business logic or store authoritative records. The supplied backend is included in `backend/pestfree-northland-production`. In a separate terminal, start it from that directory using `python -m uvicorn app.main:app --reload`. The API health endpoint is `/health`, and the interactive API reference is `/docs`.
 
-1. Attach a Render persistent disk to the web service and mount it at
-   `/var/data/pestfree-backups` (for example, 1 GB in the Render dashboard).
-2. Set the web service environment variables:
-   - `BACKUP_DIR=/var/data/pestfree-backups`
-   - `BACKUP_CRON_TOKEN=<a long random secret>`
-   - `BACKUP_RETENTION_COUNT=30`
-3. Set the same `BACKUP_CRON_TOKEN` value on the `pestfree-northland-daily-backup`
-   cron service.
-4. Set the cron service `BACKUP_BASE_URL` to the public HTTPS URL of the web
-   service, for example `https://pestfree-northland.onrender.com`.
-5. Apply [render.yaml](render.yaml) or create the cron job manually. It runs at
-   `02:00 UTC` every day and calls the coordinator-authorized backup API.
+**Deployment order:** deploy the updated Python backend before using Neighbor Assist against Render. This workspace adds `/neighbor-assist/summary` and `/neighbor-assist/requests` routes, but the already-running Render service will not gain them until the changed backend is deployed. The existing health endpoint can still return `{"status":"ok"}` while that feature is not deployed.
 
-Coordinators can list and download archives from `POST /backups/create`,
-`GET /backups`, and `GET /backups/{filename}`. The automatic cron job uses the
-separate `X-Backup-Cron-Key` secret rather than a user account. New archives
-are created as atomic ZIP files containing table JSON and a manifest. The
-retention job deletes all but the newest 30 files. These ZIP files contain
-password hashes, personal information, and exact-location data; restrict disk,
-API, and download access and keep them encrypted during any external transfer.
+If deploying this combined workspace as the Render service's repository, set the Python web service's Root Directory to `backend/pestfree-northland-production` so its existing `requirements.txt`, `app/` package and frontend assets remain the service root. Keep the current persistent database and environment variables. The new request table is created by the backend's existing startup table setup; no seed or database reset is needed.
 
-The API archive is an additional logical backup, not a replacement for
-Render's native recovery. Follow the [Render PostgreSQL backup and recovery guide](https://render.com/docs/postgresql-backups)
-for native point-in-time recovery and restore procedures.
+## Notes
 
-The admin pages use the API in `app/` and default to the same origin as the
-web app. If you host the frontend separately, set `apiBase` in
-`frontend/admin/assets/js/config.js` to the API server's origin.
-
-### Trap status and maintenance
-
-Coordinators can set a trap's status to **Active**, **Needs bait**, **Damaged**,
-**Missing**, or **Under maintenance** from the Traps page. They can also add
-dated maintenance notes; coordinators and volunteers can view those records.
-On startup, the app adds the status column to an existing traps table and
-creates the maintenance log table without removing existing trap data.
-
-### Field Worker accounts and offline checks
-
-Coordinators can create **Field Worker** accounts from the Users page. Field
-Workers can access field checks, assigned tasks, and Sync status; they can
-submit checks and catches. Coordinators can assign a trap line or individual
-follow-up task to a volunteer or field worker and track task completion. A
-worker can optionally configure a private ntfy topic (at least 16 characters)
-on the Field tasks page to receive direct assignment and reminder
-notifications. Subscribe to the same topic in the ntfy app. The personal topic
-is never returned in the public user profile.
-
-Offline checks are queued on the device for the signed-in account and upload
-when it reconnects. Failed uploads remain queued. Use **Sync status** to review
-the queue, see failed-upload details, and retry. If a device has queued checks
-for another account, those checks stay queued until that account signs in.
-Older queued checks from before account-specific syncing require confirmation
-before upload. Open the Field check page while online at least once so its trap
-data and app files are available offline.
-
-The map can search traps and filter by trap line, trap status, or overdue and
-attention-needed state. It can center on the device's current location and fit
-the visible traps. Browser location access requires HTTPS (or localhost).
-
-Reports include date-range and trap-line/area filters, catches grouped by line
-or month, species totals, overdue and never-checked summaries, and maintenance
-follow-up. CSV and PDF exports use the selected filters. The Traps, Trap lines,
-Catches, and Users tables also include search and category filters.
-
-### Scheduled trap reminders
-
-The daily reminder command checks the latest result for each trap and includes
-traps that have never been checked, reached the due or overdue threshold, or
-need attention (for example, bait needed, sprung, damaged, missing, or under
-maintenance). It sends digest notifications only when there is something to
-follow up. Where a trap line has workers with personal ntfy
-topics, reminders are sent to those topics; workers without a personal topic
-use the deployment's global topic. The digest includes trap codes and trap-line
-names, but never GPS coordinates. A worker must subscribe to their private
-topic in ntfy to receive direct alerts.
-
-For Render, create a **Cron Job** using the same repository and Python build
-setup as the web service. Set its command to `python -m app.reminders`, and
-configure the same `DATABASE_URL`, `SECRET_KEY`, `NTFY_TOPIC`, and (if used)
-`NTFY_TOKEN` and `NTFY_SERVER` environment variables. Set `DUE_AFTER_DAYS` and
-`OVERDUE_AFTER_DAYS` only if you also change the matching thresholds in
-`frontend/admin/assets/js/config.js`. Example daily cron schedule: `0 19 * * *`
-(Render schedules use UTC; choose the UTC time appropriate for your team).
-The cron job exits with an error if the notification cannot be sent, so a failed
-run is visible in the Render job logs. Run the command once manually to confirm
-the notification topic and database connection before relying on its schedule.
-
-### Audit, imports, and QR labels
-
-The coordinator-only **Audit history** page records who changed traps, users,
-catches, tasks, and trap-line assignments, with before-and-after values where
-available. Personal notification topic values are never written to the audit
-log. The Traps page provides a CSV template and validated import; required
-columns are `trap_line` and `trap_type`. Optional columns are `code`,
-`general_area`, `exact_lat`, `exact_lng`, `is_sensitive`, and `status`. A trap
-code is generated when omitted. Trap lines are matched by name. Imports are
-atomic: any row error prevents the
-entire batch from being applied. Updating existing traps requires selecting
-the explicit update option in the import confirmation.
-
-The existing **QR codes** page prints labels that open the corresponding
-field-check form. On mobile, interactive controls have larger touch targets
-and visible keyboard focus, and errors are announced in the page for assistive
-technology.
-
-### Render notification setup
-
-The app's local ntfy topic is only a development fallback. In Render, open the
-web service's **Environment** settings and set `NTFY_TOPIC` to a new,
-hard-to-guess topic used only by this deployment. Do not reuse the example or
-local topic. If publishing to ntfy.sh with an authenticated topic, also set
-`NTFY_TOKEN` to the publisher access token; the app sends it as a bearer token.
-`NTFY_SERVER` defaults to `https://ntfy.sh` and only needs to be set when using
-a different ntfy server.
-
-After changing environment variables, redeploy the service. In the ntfy app,
-subscribe to the new topic; the admin **Get alerts** button displays the
-configured topic. ntfy.sh may rate-limit unauthenticated publishing from shared
-hosting IP addresses, so use an authenticated token or a server you control if
-the hosted service continues returning HTTP 429.
+- Access tokens use platform secure storage. The pending check queue is stored locally and tied to the signed-in device; clearing app storage removes queued offline work.
+- The app never displays GPS coordinates on the dashboard or trap list. API location permissions continue to be enforced by the backend.
+- Coordinator administration (user management, imports, inventory, reports, audit, and trap-line administration) remains available in the existing web admin app. Neighbor Assist triage is available to coordinators in the mobile app.
