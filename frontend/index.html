@@ -12,6 +12,42 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="assets/style.css">
+  <style>
+  #cookieBanner {
+    position: fixed;
+    left: 16px;
+    right: 16px;
+    bottom: 16px;
+    max-width: 760px;
+    margin: 0 auto;
+    background: #08110F;
+    color: #fff;
+    border-radius: 12px;
+    padding: 18px 20px;
+    display: none;
+    flex-wrap: wrap;
+    gap: 14px;
+    align-items: center;
+    justify-content: space-between;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25);
+    z-index: 1000;
+    font-family: "DM Sans", sans-serif;
+    font-size: 15px;
+    line-height: 1.5;
+  }
+  #cookieBanner p { margin: 0; flex: 1 1 360px; }
+  #cookieBanner a { color: #fff; text-decoration: underline; }
+  #cookieBanner .actions { display: flex; gap: 10px; }
+  #cookieBanner button {
+    padding: 9px 18px;
+    border-radius: 999px;
+    border: 1px solid #fff;
+    font: 600 14px "DM Sans", sans-serif;
+    cursor: pointer;
+  }
+  #cookieBanner .accept { background: #fff; color: #08110F; }
+  #cookieBanner .decline { background: transparent; color: #fff; }
+</style>
 </head>
 <body>
   <header class="header">
@@ -90,6 +126,13 @@
       </div>
     </section>
   </main>
+  <div id="cookieBanner" role="dialog" aria-label="Cookie consent">
+  <p>We use cookies to understand how visitors use this site. Read our <a href="privacy.html">Privacy Policy</a>.</p>
+  <div class="actions">
+    <button id="cookieDecline" class="decline">Decline</button>
+    <button id="cookieAccept" class="accept">Accept</button>
+  </div>
+</div>
 
   <footer class="footer">
     <div class="container footer-inner">
@@ -100,5 +143,20 @@
 
   <script src="assets/translation.js"></script>
   <script src="assets/script.js"></script>
+  <script>
+  (function () {
+    var banner = document.getElementById('cookieBanner');
+    var choice = null;
+    try { choice = localStorage.getItem('cookieConsent'); } catch (e) {}
+    if (!choice) { banner.style.display = 'flex'; }
+
+    function save(value) {
+      try { localStorage.setItem('cookieConsent', value); } catch (e) {}
+      banner.style.display = 'none';
+    }
+    document.getElementById('cookieAccept').onclick = function () { save('accepted'); };
+    document.getElementById('cookieDecline').onclick = function () { save('declined'); };
+  })();
+</script>
 </body>
 </html>
