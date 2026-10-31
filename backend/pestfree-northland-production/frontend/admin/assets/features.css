@@ -1,0 +1,85 @@
+/* features.css — page-specific extras. Load after admin.css. */
+
+.tile {
+  display: block;
+  width: 100%;
+  min-height: 84px;
+  padding: 1rem;
+  font-size: 1.15rem;
+  text-align: center;
+  cursor: pointer;
+  border-radius: 14px;
+  border: 2px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+}
+.tile:hover { border-color: var(--accent); }
+.tile:disabled { opacity: .5; }
+.tile.active {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 25%, transparent);
+}
+.tile i { font-size: 1.7rem; color: var(--accent); }
+.tile.list { min-height: 0; margin-bottom: .6rem; font-size: 1rem; text-align: left; }
+
+.chart-box { position: relative; height: 260px; }
+.table-filterbar .form-control,
+.table-filterbar .form-select { min-height: 44px; }
+.btn:not(.btn-sm), .form-control, .form-select { min-height: 44px; }
+.btn-sm { min-height: 38px; }
+.form-label { font-weight: 600; }
+.trap-location-map { height: 260px; overflow: hidden; }
+.nearby-trap-map { height: 320px; overflow: hidden; border: 1px solid var(--border); }
+
+.map-legend {
+  background: color-mix(in srgb, var(--surface) 92%, transparent);
+  color: var(--text);
+  padding: 8px 12px;
+  border-radius: 8px;
+  font-size: .8rem;
+  line-height: 1.7;
+  border: 1px solid var(--border);
+}
+.legend-dot {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  margin-right: 6px;
+  vertical-align: -1px;
+  box-sizing: border-box;
+}
+
+.offbar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 2000;
+  padding: .5rem 1rem;
+  text-align: center;
+  background: #e0a526;
+  color: #08110f;
+  font-weight: 600;
+  font-size: .9rem;
+}
+
+.qr-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 12px; }
+.qr-label { background: #fff; color: #000; border-radius: 10px; padding: 10px; text-align: center; break-inside: avoid; }
+.qr-img { display: flex; justify-content: center; margin-bottom: 6px; }
+
+@media print {
+  .sb, .top, .no-print, #err, .offbar, .sb-overlay { display: none !important; }
+  body { background: #fff !important; color: #000 !important; }
+  .page-body { padding: 0 !important; max-width: none; }
+  h1 { color: #000 !important; }
+  .qr-label { border: 1px solid #999; }
+}
+
+@media (max-width: 575.98px) {
+  .table-filterbar input,
+  .table-filterbar select { font-size: 16px; }
+  .table-filterbar .btn { min-height: 44px; }
+  .tile.list { padding: .85rem; }
+}
