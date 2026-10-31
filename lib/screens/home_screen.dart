@@ -4,6 +4,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../core/api.dart';
 import '../core/session.dart';
 import 'assist_screen.dart';
+import 'map_screen.dart';
 import '../theme.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -142,7 +143,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final titles = ['Overview', 'Trap lines', 'My tasks', 'Community support', 'Profile'];
+    final titles = ['Overview', 'Trap lines', 'Map', 'My tasks', 'Home visit', 'Profile'];
     final scaffold = Scaffold(
       appBar: AppBar(title: Text(titles[_tab]), actions: [
         if (_queue.isNotEmpty) Padding(padding: const EdgeInsets.only(right: 8), child: Center(child: _QueuePill(count: _queue.length))),
@@ -156,6 +157,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   _Overview(name: widget.session.displayName, lines: _lines, traps: _traps, tasks: _tasks,
                     queueCount: _queue.length, onGo: (index) => setState(() => _tab = index), onCheck: _recordCheck, onRefresh: _load),
                   _TrapList(lines: _lines, traps: _traps, onCheck: _recordCheck),
+                  MapScreen(traps: _traps),
                   _TaskList(tasks: _tasks, onUpdate: _updateTask),
                   AssistScreen(session: widget.session),
                   _Profile(session: widget.session, onRefresh: _load),
@@ -165,8 +167,9 @@ class _HomeScreenState extends State<HomeScreen> {
         destinations: const [
           NavigationDestination(icon: Icon(Icons.grid_view_rounded), label: 'Home'),
           NavigationDestination(icon: Icon(Icons.place_outlined), label: 'Traps'),
+          NavigationDestination(icon: Icon(Icons.map_outlined), label: 'Map'),
           NavigationDestination(icon: Icon(Icons.checklist_rounded), label: 'Tasks'),
-          NavigationDestination(icon: Icon(Icons.volunteer_activism_outlined), label: 'Assist'),
+          NavigationDestination(icon: Icon(Icons.home_work_outlined), label: 'Home visit'),
           NavigationDestination(icon: Icon(Icons.person_outline), label: 'Profile'),
         ]),
     );
@@ -211,13 +214,19 @@ class _Overview extends StatelessWidget {
           const SizedBox(height: 6),
           const Text('Every trap check moves Northland closer to a pest-free future.', style: TextStyle(color: muted, height: 1.45)),
           const SizedBox(height: 18),
-          FilledButton.icon(onPressed: () => onGo(1), icon: const Icon(Icons.qr_code_scanner_rounded), label: const Text('Start a trap check'),
-            style: FilledButton.styleFrom(backgroundColor: leaf, foregroundColor: forest, minimumSize: const Size.fromHeight(48))),
+          Row(children: [
+            Expanded(child: FilledButton.icon(onPressed: () => onGo(1), icon: const Icon(Icons.qr_code_scanner_rounded), label: const Text('Start a trap check'),
+              style: FilledButton.styleFrom(backgroundColor: leaf, foregroundColor: forest, minimumSize: const Size.fromHeight(48)))),
+            const SizedBox(width: 8),
+            IconButton(onPressed: () => onGo(2), tooltip: 'Open trap map', icon: const Icon(Icons.map_outlined, color: leaf, size: 28)),
+          ]),
         ])),
       if (queueCount > 0) ...[
         const SizedBox(height: 14),
         _InfoBanner(icon: Icons.cloud_upload_outlined, text: '$queueCount check${queueCount == 1 ? '' : 's'} waiting to sync'),
       ],
+      const SizedBox(height: 16),
+      _HomeVisitCard(onOpen: () => onGo(4)),
       const SizedBox(height: 22),
       const _SectionTitle('Your field snapshot'),
       const SizedBox(height: 11),
@@ -243,6 +252,33 @@ class _Overview extends StatelessWidget {
       }),
     ]));
   }
+}
+
+class _HomeVisitCard extends StatelessWidget {
+  const _HomeVisitCard({required this.onOpen});
+  final VoidCallback onOpen;
+
+  @override
+  Widget build(BuildContext context) => Card(
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Row(children: [
+            Container(
+              width: 46,
+              height: 46,
+              decoration: BoxDecoration(color: accentSoft, borderRadius: BorderRadius.circular(14)),
+              child: const Icon(Icons.home_work_outlined, color: leaf),
+            ),
+            const SizedBox(width: 12),
+            const Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text('Need help at home?', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 15)),
+              SizedBox(height: 4),
+              Text('Request a safe pest or trap visit from a local volunteer.', style: TextStyle(color: muted, fontSize: 12, height: 1.35)),
+            ])),
+            TextButton(onPressed: onOpen, child: const Text('Request')),
+          ]),
+        ),
+      );
 }
 
 class _TrapList extends StatefulWidget {
